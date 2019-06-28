@@ -39,8 +39,8 @@ processed RECURSIVELY, finding and surveying each Go source file in that directo
 hierarchy.
 
 By default, the directory traversal and file surveying logic ignore directories and files
-with an initial period in their basenames following UNIX shell tradition. The HIDDEN
-option "-hidden" may be used to include hidden files and directories in the survey.
+with an initial period in their basenames following UNIX shell tradition. The VISIBLE
+option "-visible" may be used to include hidden files and directories in the survey.
 
 The "-v" VERBOSE argument requests details of file processing and filesystem traversal,
 reporting files with unbalanced "()[]{}" that should appear in pairs, files with improper
