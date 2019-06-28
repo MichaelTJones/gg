@@ -44,7 +44,7 @@ option "-visible" may be used to include hidden files and directories in the sur
 
 The "-v" VERBOSE argument requests details of file processing and filesystem traversal,
 reporting files with unbalanced "()[]{}" that should appear in pairs, files with improper
-Unicode characters, and other curiosities. Since such code willnot compile, these files
+Unicode characters, and other curiosities. Since such code will not compile, these files
 are usually tests. When in verbose mode the report will list any problem files with a
 summary of the problem. The format is quoted strings for unexpected characters ("@#") and
 a token balance count for mismatched Go operators. When you see:
