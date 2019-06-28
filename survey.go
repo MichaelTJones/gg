@@ -11,14 +11,13 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"lex"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
-	// "github.com/klauspost/compress/zip"
+	"github.com/MichaelTJones/lex"
 	"github.com/cavaliercoder/go-cpio"
 	"github.com/klauspost/compress/zstd"
 )
