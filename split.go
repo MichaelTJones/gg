@@ -3,10 +3,11 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
-	"lex"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/MichaelTJones/lex"
 )
 
 /*
