@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// var flagJoin = flag.String("join", "", "join split files to this filename") // WIP
+// Survey-related flags
 var flagCPUs = flag.Int("cpu", 0, "number of CPUs to use (0 for all)")
 var flagGo = flag.Bool("go", true, `limit survey to Go files ("main.go")`)
 var flagLines = flag.Int("lines", 32, "maximum number of lines in report categories")
@@ -17,11 +17,13 @@ var flagList = flag.String("list", "", "list of filenames to survey")
 var flagLog = flag.String("log", "", `write log to named file (or "[stdout]" or "[stderr]")`)
 var flagOutput = flag.String("o", "", `write output to named file (or "[stdout]" or "[stderr]")`)
 var flagRecursive = flag.Bool("r", false, "survey directories recursively")
-var flagSize = flag.Int("size", 0, "minimum byte size for parts of split files")
-var flagSplit = flag.String("split", "", "split named file")
 var flagStyle = flag.String("style", "plain", "output style: plain, markdown")
 var flagVerbose = flag.Bool("v", false, "verbose logging and reporting")
 var flagVisible = flag.Bool("visible", true, `limit survey to visible files (skip ".hidden.go")`)
+
+// Split-related flags (plus flagOutput)
+var flagSize = flag.Int("size", 0, "minimum byte size for parts of split files")
+var flagSplit = flag.String("split", "", "split named file")
 
 var usage = `Survey gathers and reports summary statistics of Go code.
 
@@ -116,10 +118,17 @@ func main() {
 		log.SetOutput(file)
 	}
 
-	// control concurrency for testing (no disadvantage to maximal concurrrency)
+	// control concurrency for testing (no disadvantage for maximal concurrrency)
 	if *flagCPUs != 1 {
 		if *flagCPUs == 0 {
-			*flagCPUs = runtime.NumCPU() // number reflects real and pseudo-CPUs
+			// claim CPUs
+			*flagCPUs = runtime.NumCPU()
+		} else if *flagCPUs < 0 {
+			// spare CPUs
+			*flagCPUs += runtime.NumCPU() // "-cpu -2" ==> "max(num CPUs - 2, 1)"
+			if *flagCPUs < 1 {
+				*flagCPUs = 1
+			}
 		}
 	}
 
