@@ -1,12 +1,16 @@
 
-# survey
+# gg: Go Grep
 
-Survey Go-language source code and report usage statistics. Builds reports like this:
+gg is a grep tool for Go-language source code. It restricts the search to
+designated Go token classes, such as identifiers, package names, numbers, comments, keywords, and
+the like. Because gg understands what it is searching for, it can make smart matches. For
+example:
 
-* [Go 1.13 source code](https://gist.github.com/MichaelTJones/ca0fd339401ebbe79b9cbb5044afcfe2)
+* Searching for _numbers_ that match a value, say 255, no matter if expressed as 0b1111_1111, 0377, 255, or 0xff is easy with "gg -n 255 *.go"
 
-* [Russ Cox's Go Corpus](https://gist.github.com/MichaelTJones/609589e05017da4be52bc2810e9df4e8)
+* Searching for "if" in code, but not in comments or strings, is "gg -k if ." for _keywords_ matching "if" in all the ".go" files in the current directory.
 
-This is a concurrent Go program. Surveying the [Go Corpus](https://github.com/rsc/corpus)
-on my personal computer (after splitting per the comments in split.go) parses those 752
-MiB of Go source at 450 MiB/sec. This is a testament to Go's efficiency.
+* Searching a file hierarchy _recursively_ for _comments_ containing "case" (but not
+  switch statements), is "gg -r -c case ."
+
+gg is a Go program several times the speed of the standard grep.
