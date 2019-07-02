@@ -31,12 +31,13 @@ for Go developers.
 The search is restricted, seeking matches only in chosen token classes.
 A search in number literals can match \fIvalues\fR, "v 255" matches the numeric value 255
 in source code as 0b1111_1111, 0377, 0o377, 255, 0xff, etc.
-Go's robust linear-cost regular expression engine is Unicode aware and supports many Perl extensions, so
+Go's linear-time regular expression engine is Unicode aware and supports many Perl extensions, so
 numbers in identifiers are found by "gg i [0-9]" or "gg i [\\d]"
 and comments containing math symbols are found by "gg c \\p{Sm}"  (with appropriate shell escaping).
 .PP
 gg searches files named on the command line or in a list of filenames provided
-the "-list" argument. When neither is provided, gg reads filenames from the standard input.
+the "-list" argument.
+If neither is present, gg reads file names from the standard input.
 This last is useful in shell pipelines such as "find . -name "*.go" | gg k fallthrough"
 .PP
 Files are Go source files or directories.
@@ -46,9 +47,8 @@ and ZStandard compression formats; archives of any such files in the formats "a.
 "a.tar", or "a.zip"; or, finally, compressed archives as in "a.cpio.bz2" and "a.tar.gz".
 If a named file is a directory then all Go source files in that directory are scanned
 without visiting subdirectories.
-With the "-r" flag enabled, named directories are
-processed recursively, finding and scanning each Go source file in that directory's
-hierarchy.
+With the "-r" flag enabled, named directories are processed recursively, scanning
+each Go source file in that directory's hierarchy.
 .SH OPTIONS
 .TP
 .BR \-cpu =\fIn\fR
@@ -80,7 +80,7 @@ Default is true.
 .TP
 .BR \fIacdiknoprstvCDIKNOPRSTV\fR
 The Go token class flags have an upper case negative form to disable the indicated class.
-Used with "a", "aCS" means "search all tokens except comments and strings."
+Used with "a", "aCS" means "search All tokens except Comments and Strings."
 .SH EXAMPLES
 To search for comments containing "case" (ignoring switch statements) in the
 ".go" files of the current working directory, use the command:
@@ -91,7 +91,7 @@ gg c case .
 .RE
 .fi
 .PP
-To find number literals containing the digits 42 in Go files anywhere in the current
+To find number literals containing the digits 42 in ".go" files located anywhere in the current
 directory's hierarchy, use the command:
 .PP
 .nf
@@ -101,7 +101,7 @@ gg -r n 42 .
 .fi
 .PP
 Find numbers with values of 255 (0b1111_1111, 0377,
-0o377, 255, 0xff) in the gzipped
+0o377, 255, 0xff) in ".go" files in the gzipped
 .BR tar (1)
 archive omega with the command:
 .PP

@@ -9,94 +9,139 @@ import (
 	"strings"
 )
 
-// Survey-related flags
 var flagCPUs = flag.Int("cpu", 0, "number of CPUs to use (0 for all)")
-var flagGo = flag.Bool("go", true, `limit survey to Go files ("main.go")`)
-var flagLines = flag.Int("lines", 32, "maximum number of lines in report categories")
-var flagList = flag.String("list", "", "list of filenames to survey")
+var flagGo = flag.Bool("go", true, `limit grep to Go files ("main.go")`)
+var flagList = flag.String("list", "", "list of filenames to grep")
 var flagLog = flag.String("log", "", `write log to named file (or "[stdout]" or "[stderr]")`)
-var flagOutput = flag.String("o", "", `write output to named file (or "[stdout]" or "[stderr]")`)
-var flagRecursive = flag.Bool("r", false, "survey directories recursively")
-var flagStyle = flag.String("style", "plain", "output style: plain, markdown")
-var flagVerbose = flag.Bool("v", false, "verbose logging and reporting")
-var flagVisible = flag.Bool("visible", true, `limit survey to visible files (skip ".hidden.go")`)
+var flagOutput = flag.String("output", "", `write output to named file (or "[stdout]" or "[stderr]")`)
+var flagRecursive = flag.Bool("r", false, "grep directories recursively")
+var flagVisible = flag.Bool("visible", true, `limit grep to visible files (skip ".hidden.go")`)
 
-// Split-related flags (plus flagOutput)
-var flagSize = flag.Int("size", 0, "minimum byte size for parts of split files")
-var flagSplit = flag.String("split", "", "split named file")
+// token class inclusion
+// a: search all of the following
+// c: search Comments ("//..." or "/*...*/")
+// d: search Defined non-types (iota, nil, new, true,...)
+// i: search Identifiers ([a-zA-Z][a-zA-Z0-9]*)
+// k: search Keywords (if, for, func, go, ...)
+// n: search Numbers as strings (255 as 255, 0.255, 1e255)
+// o: search Operators (,+-*/[]{}()>>...)
+// p: search Package names
+// r: search Rune literals ('a', '\U00101234')
+// s: search Strings ("quoted" or `raw`)
+// t: search Types (bool, int, float64, map, ...)
+// v: search numeric Values (255 as 0b1111_1111, 0377, 255, 0xff)
+var C, D, I, K, N, O, P, R, S, T, V bool
 
-var usage = `Survey gathers and reports summary statistics of Go code.
+var usage = `NAME
+gg − grep Go‐language source code
 
-Surveys files listed by name as command line arguments, in a list of filenames provided
-the "-list" argument, or if neither is provided, reads filenames from the standard input.
-This last is useful in shell pipelines such as "find . -name "*.go" | survey"
+SYNOPSIS
+gg [options] acdiknoprstv regexp [file ...]
 
-Files may be either Go source files or directories. Source files include typical ".go"
-files; compressed ".go" files named ".go.bz2", ".go.gz", or ".go.zst" for Bzip2, Gzip, and
-ZStandard compression formats; archives of any such files in the formats "a.cpio",
-"a.tar", or "a.zip"; or, finally, compressed archives as in "a.cpio.bz2" and "a.tar.gz".
-If a named file is a directory then all Go source files in that directory are surveyed
-without visiting subdirectories. With the "-r" flag enabled, named directories are
-processed RECURSIVELY, finding and surveying each Go source file in that directory's
-hierarchy.
+DESCRIPTION
+gg  is  grep  (g/RE/p) with flag‐enabled Go token classes: identifiers,
+package names, numbers, comments, keywords, and the like. The flags and
+classes are "acdiknoprstv" in any order and combination.
 
-By default, the directory traversal and file surveying logic ignore directories and files
-with an initial period in their basenames following UNIX shell tradition. The VISIBLE
-option "-visible" may be used to include hidden files and directories in the survey.
+    a: search in All of the following
+    c: search in Comments (//... or /*...*/)
+    d: search in Defined non‐types (iota, nil, new, true,...)
+    i: search in Identifiers ([alphabetic][alphabetic | numeric]*)
+    k: search in Keywords (if, for, func, go, ...)
+    n: search in Numbers ("255" matches 255, 0.255, 1e255)
+    o: search in Operators ( ,  +  ‐  *  /  [  ] {  }  ( )  >> ...)
+    p: search in Package names
+    r: search in Rune literals (’a’, ’\U00101234’)
+    s: search in Strings (quoted or raw)
+    t: search in Types (bool, int, float64, map, ...)
+    v: search in Values (255 is 0b11111111, 0377, 255, 0xff)
 
-The "-v" VERBOSE argument requests details of file processing and filesystem traversal,
-reporting files with unbalanced "()[]{}" that should appear in pairs, files with improper
-Unicode characters, and other curiosities. Since such code will not compile, these files
-are usually tests. When in verbose mode the report will list any problem files with a
-summary of the problem. The format is quoted strings for unexpected characters ("@#") and
-a token balance count for mismatched Go operators. When you see:
+gg  combines  lexical analysis and Go‐native pattern matching to extend
+grep(1) for Go developers.  The search is restricted,  seeking  matches
+only  in  chosen  token classes.  A search in number literals can match
+values, "v 255" matches  the  numeric  value  255  in  source  code  as
+0b1111_1111,  0377,  0o377,  255,  0xff, etc.  Go’s linear‐time regular
+expression engine is Unicode aware and supports many  Perl  extensions,
+so  numbers in identifiers are found by "gg i [0‐9]" or "gg i [\d]" and
+comments containing math symbols are found  by  "gg  c  \p{Sm}"   (with
+appropriate shell escaping).
 
-  (7:10) [0:3] {7:7}  /Users/mtj/go/test/fixedbugs/issue22581.go
+gg  searches  files named on the command line or in a list of filenames
+provided the "‐list" argument.  If neither is present,  gg  reads  file
+names  from the standard input.  This last is useful in shell pipelines
+such as "find . ‐name "*.go" | gg k fallthrough"
 
-the (7:10) means that the named file has 7 left parenthesis and 10 right ones, [0:3] means
-zero left and 3 right square brackets, and {7:7} shows 7 matching left and right braces.
-Each number is beside the symbol it counts.
+Files are Go source files or directories.  Source files include typical
+".go"  files;  compressed  ".go"  files  named  ".go.bz2", ".go.gz", or
+".go.zst" for Bzip2, Gzip, and ZStandard compression formats;  archives
+of  any  such  files  in the formats "a.cpio", "a.tar", or "a.zip"; or,
+finally, compressed archives as in "a.cpio.bz2" and "a.tar.gz".   If  a
+named  file  is  a directory then all Go source files in that directory
+are scanned  without  visiting  subdirectories.   With  the  "‐r"  flag
+enabled,  named directories are processed recursively, scanning each Go
+source file in that directory’s hierarchy.
 
-Output STYLE is set with the "-style" option. The default value "plain" prints data
-simply; with the value "markdown" or "md" it prepares output for stylized display in
-tables such as:
+OPTIONS
+−cpu=n
+    Set the number of CPUs to use.  Default is all.
 
-   https://gist.github.com/MichaelTJones/ca0fd339401ebbe79b9cbb5044afcfe2 (Go 1.13)
-   https://gist.github.com/MichaelTJones/609589e05017da4be52bc2810e9df4e8 (Go Corpus 0.01)
+−go=bool
+    Limit search to ".go" files.  Default is true.
 
-Details of processing errors, such as file access problems, are available by setting the
-LOGGING filename with the "-log" option. Two special log filenames are recognized:
-"[stdout]" and "[stderr]" and route logging output to these standard UNIX destinations.
-Without logging, minor processing errors, such as file access problems, are not reported.
+−list=file
+    Search files listed one per line in the named file.
 
-Output is normally to the standard output but may be directed to a file named by the "-o"
-OUTPUT option. As with logging, the special names "[stdout]" and "[stderr]" are also
-recognized and cause the survey report to be sent to the indicated stream.
+−log=file
+    Write a log of execution details to a named file.   The  special
+    file  names  "[stdout]"  and  "[stderr]" refer to the stdout and
+    stderr streams.
 
-A few of the report topics are very verbose, such as the list of variable names. These
-categories are generally reported as a truncated list with the last element summarizing
-the unseen remainder ("plus 45000 more"). The length of such output lists is controlled by
-tht LINES option, "-lines." The special value 0 means all lines. (Beware that "all" can
-imply a very large list: the Go corpus has 480,556 unique identifiers.)
+−output=file
+    gg output is normally to stdout but may be directed to  a  named
+    file.   The special names "[stdout]" and "[stderr]" refer to the
+    stdout and stderr streams.
 
-Surveying uses multiple CPUs to maximize performance. How many is controlled by the CPU
-option "-cpu" whose default value of 0 means "all."" Force a single process with "-cpu=1"
-and likewise to force any desired level of concurrency. The report will show CPU scaling
-efficiency when multiple CPUs are in use. To understand it, consider the system's number
-and nature of processors. Machines may have N cores and N virtual cores, reported as 2N
-CPUs, but with a throughput of 1.25 to 1.5 N. Specifically, a 4-core + 4 SMT core intel
-processor has 5 to 6 cores of performance. If the reported speedup there is 5x to 6x,
-that is efficient. Values of 1.6 to 1.7 times the non-SMT core count seem all that may be 
-expected so rejoice in Go's efficiency despite asymmetric SMT.
+−r=bool
+    Search directories recursively.  Default is false.
 
-Author: Michael Jones
+−visible=bool
+    Restrict search to visible files, those with names that  do  not
+    start with "." (in the shell tradition).  Default is true.
+
+acdiknoprstvCDIKNOPRSTV
+    The  Go  token  class  flags have an upper case negative form to
+    disable the indicated class.  Used with "a", "aCS" means "search
+    All tokens except Comments and Strings."
+
+EXAMPLES
+To  search  for comments containing "case" (ignoring switch statements)
+in the ".go" files of the current working directory, use the command:
+
+    gg c case .
+
+To find number literals containing the digits 42 in ".go" files located
+anywhere in the current directory’s hierarchy, use the command:
+
+    gg ‐r n 42 .
+
+Find  numbers  with values of 255 (0b1111_1111, 0377, 0o377, 255, 0xff)
+in ".go" files in the gzipped tar(1) archive omega with the command:
+
+    gg v 255 omega.tar.gz
+
+AUTHOR
+Michael T. Jones (https://github.com/MichaelTJones)
+
+SEE ALSO
+https://golang.org/pkg/regexp/syntax/
+https://en.wikipedia.org/wiki/Unicode_character_property
 `
 
 func main() {
 	// parse command line before configuring logging (to allow "-log xyz.txt")
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
-		flag.PrintDefaults()
+		// flag.PrintDefaults()
 		fmt.Fprintf(flag.CommandLine.Output(), "\n%s", usage)
 	}
 	flag.Parse()
@@ -132,19 +177,11 @@ func main() {
 		}
 	}
 
-	// nornalize style options to lower case, expand nicknames
-	*flagStyle = strings.ToLower(*flagStyle)
-	if *flagStyle == "md" {
-		*flagStyle = "markdown"
+	if flag.NArg() < 2 {
+		fmt.Fprintf(os.Stderr, "usage: gg [flags] tokens regexp [file ...]\n")
+		os.Exit(1)
 	}
 
 	// perform actual work
-	switch {
-	case *flagSplit != "":
-		//split a large Go-code "blob" (such as the Go-Corpus) into parts.
-		doSplit()
-	default:
-		// survey Go-code in files, directories, hierchies, archives, and blobs.
-		doSurvey()
-	}
+	doScan()
 }
