@@ -11,10 +11,10 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -28,6 +28,21 @@ Go-Grep: scan any number of Go source code files, where scanning means passing e
 through Go-language lexical analysis and reporting lines where selected classes of
 tokens match a search pattern defined by a reguar expression.
 */
+
+// token class inclusion
+// a: search all of the following
+// c: search Comments ("//..." or "/*...*/")
+// d: search Defined non-types (iota, nil, new, true,...)
+// i: search Identifiers ([a-zA-Z][a-zA-Z0-9]*)
+// k: search Keywords (if, for, func, go, ...)
+// n: search Numbers as strings (255 as 255, 0.255, 1e255)
+// o: search Operators (,+-*/[]{}()>>...)
+// p: search Package names
+// r: search Rune literals ('a', '\U00101234')
+// s: search Strings ("quoted" or `raw`)
+// t: search Types (bool, int, float64, map, ...)
+// v: search numeric Values (255 as 0b1111_1111, 0377, 255, 0xff)
+var G, C, D, I, K, N, O, P, R, S, T, V bool
 
 // matching
 var regex *regexp.Regexp // pattern
@@ -68,6 +83,8 @@ func doScan() {
 			D = true
 		case 'D':
 			D = false
+		case 'g':
+			G = true
 		case 'i':
 			I = true
 		case 'I':
@@ -137,14 +154,18 @@ func doScan() {
 	// scan files in the file of filenames indicated by the "-list" option.
 	if *flagList != "" {
 		println("processing files listed in the -list option")
+		*flagFileName = true
 		s.List(*flagList)
 		scanned = true
 	}
 
 	// scan files named on command line.
-	if flag.NArg() > 0 {
+	if flag.NArg() > 2 {
 		println("processing files listed on command line")
-		for _, v := range flag.Args()[1:] {
+		if flag.NArg() > 3 {
+			*flagFileName = true // multiple files...print names
+		}
+		for _, v := range flag.Args()[2:] {
 			s.File(v)
 		}
 		scanned = true
@@ -153,6 +174,7 @@ func doScan() {
 	// scan files named in standard input if nothing scanned yet.
 	if !scanned {
 		println("processing files listed in standard input")
+		*flagFileName = true // multiple files...print names
 		scanner := bufio.NewScanner(os.Stdin)
 		for scanner.Scan() {
 			s.File(scanner.Text())
@@ -160,20 +182,13 @@ func doScan() {
 	}
 	s.Complete()
 	println("scan ends")
-
-	// generate output
-	// if scanned && *flagCPUs != 1 {
-	println("report begins")
-	s.Report()
-	println("report ends")
-	// }
 }
 
 type Scan struct {
-	complete bool
 	path     string
+	line     []uint32
 	match    []string
-	combined []*Scan
+	complete bool
 }
 
 func NewScan() *Scan {
@@ -473,46 +488,42 @@ type Work struct {
 
 var first bool = true
 var workers int
-var work chan Work
-var result chan *Scan
+var scattered int
+var work []chan Work
+var result []chan *Scan
+var done chan bool
 
-func worker() {
-	s := NewScan()
-	for w := range work {
+func worker(index int) {
+	for w := range work[index] {
+		s := NewScan()
 		s.scan(w.name, w.source)
+		result[index] <- s
 	}
-	result <- s
+	result[index] <- &Scan{complete: true} // signal that this worker is done
 }
 
 func (s *Scan) Scan(name string, source []byte) {
 	if first {
-		if *flagCPUs != 1 {
-			workers = *flagCPUs
-			work = make(chan Work, 32*workers)
-			result = make(chan *Scan)
-			for i := 0; i < workers; i++ {
-				go worker()
-			}
+		workers = *flagCPUs
+		work = make([]chan Work, workers)
+		result = make([]chan *Scan, workers)
+		for i := 0; i < workers; i++ {
+			work[i] = make(chan Work, 512)
+			result[i] = make(chan *Scan, 512)
+			go worker(i)
 		}
+		done = make(chan bool)
+		go reporter()
 		first = false
 	}
 
 	switch {
 	case name != "": // another file to scan
-		switch *flagCPUs {
-		case 1:
-			s.scan(name, source) // synchronous...wait for scan to complete
-		default:
-			work <- Work{name: name, source: source} // enqueue scan request
-		}
+		work[scattered%workers] <- Work{name: name, source: source} // enqueue scan request
+		scattered++
 	case name == "": // end of scan
-		if *flagCPUs != 1 && workers != 0 {
-			close(work) // request results
-			for i := 0; i < workers; i++ {
-				s.Combine(<-result) // combine results
-			}
-			close(result)
-			workers = 0
+		for i := range work {
+			close(work[i]) // signal completion to workers
 		}
 	}
 }
@@ -524,18 +535,36 @@ func (s *Scan) scan(name string, source []byte) {
 	if err != nil {
 		return
 	}
-
 	s.path = newName
+
+	// handle grep mode
+	if G {
+		scanner := bufio.NewScanner(bytes.NewReader(source))
+		line := uint32(1)
+		for scanner.Scan() {
+			if regex.MatchString(scanner.Text()) {
+				s.match = append(s.match, scanner.Text()+"\n")
+				if *flagLineNumber {
+					s.line = append(s.line, line)
+				}
+			}
+			line++
+		}
+		return
+	}
+
+	// Perform the scan by tabulating token types, subtypes, and values
 	line := -1
 	lexer := &lex.Lexer{Input: string(source), Mode: lex.ScanGo} // | lex.SkipSpace}
 	expectPackageName := false
-
-	// Perform the scan by tabulating token types, subtypes, and values
 	for tok, text := lexer.Scan(); tok != lex.EOF; tok, text = lexer.Scan() {
 		// go mini-parser: expect package name after "package" keyword
 		if expectPackageName && tok == lex.Identifier {
 			if P && regex.MatchString(text) {
 				s.match = append(s.match, lexer.GetLine())
+				if *flagLineNumber {
+					s.line = append(s.line, uint32(lexer.Line))
+				}
 			}
 			expectPackageName = false
 		} else if tok == lex.Keyword && text == "package" {
@@ -553,12 +582,18 @@ func (s *Scan) scan(name string, source []byte) {
 							s.match = append(s.match, scanner.Text()+"\n")
 							line = lexer.Line + lineInString
 							lineInString++
+							if *flagLineNumber {
+								s.line = append(s.line, uint32(line+1))
+							}
 						}
 					}
 				} else if regex.MatchString(text) {
 					// match the token but print the line that contains it
 					s.match = append(s.match, lexer.GetLine())
 					line = lexer.Line
+					if *flagLineNumber {
+						s.line = append(s.line, uint32(line+1))
+					}
 				}
 			}
 		}
@@ -576,7 +611,6 @@ func (s *Scan) scan(name string, source []byte) {
 			handle(I)
 		case lex.Number:
 			handle(N) // literal match
-
 			// introducing... the value match
 			if V && lexer.Line > line {
 				var nS int
@@ -604,32 +638,22 @@ func (s *Scan) scan(name string, source []byte) {
 	}
 }
 
-func (s *Scan) Combine(c *Scan) {
-	s.combined = append(s.combined, c)
-}
-
 // Complete a scan
 func (s *Scan) Complete() {
-	// Completion is a one-time operation. if already done, it must not be done again.
-	if s.complete {
-		return
-	}
+	if !s.complete {
+		s.Scan("", nil) // Signal end of additional files...
+		<-done          // ...and await completion.of scanning
 
-	// Signal end of scan, await asynchronous completion, and combine all results.
-	s.Scan("", nil)
-	s.complete = true
+		for i := range result {
+			close(result[i])
+		}
+
+		s.complete = true // Record completion
+	}
 }
 
-func (s *Scan) Report() {
-	// complete scan (if not already the case)
-	if !s.complete {
-		s.Complete()
-	}
-
-	// if *flagCPUs == 1 {
-	// 	return // in single-cpu case the results are already reported
-	// }
-
+func reporter() {
+	// open output
 	file := os.Stdout
 	switch lower := strings.ToLower(*flagOutput); {
 	case lower == "[stdout]":
@@ -645,21 +669,55 @@ func (s *Scan) Report() {
 		}
 		defer file.Close()
 	}
+	// w := bufio.NewWriter(file) // ensure buffered writes
 
-	// sort results by pathname
-	s.combined = append(s.combined, s) // add ourselves to the list
-	sort.Slice(s.combined, func(i, j int) bool {
-		return s.combined[i].path < s.combined[j].path
-	})
+	// report results per file
+	gathered := 0
+	completed := 0
+	for {
+		// get next result in search order
+		s := <-result[gathered%workers]
+		gathered++
 
-	w := bufio.NewWriter(file)
-	// output matches
-	for _, f := range s.combined { // for each file scanned
-		for _, m := range f.match { // matches in line order
-			w.WriteString(f.path)
-			w.WriteString(": ")
-			w.WriteString(m)
+		// handle completion events
+		if s.complete {
+			completed++ // one more worker has finished
+			if completed == workers {
+				break // all workers have now finished
+			}
+			continue
+		}
+
+		// report this file's matching lines
+		for i, m := range s.match {
+			if *flagFileName {
+				file.WriteString(s.path) // the file name
+				file.WriteString(":")
+				// w.WriteString(s.path) // the file name
+				// w.WriteString(":")
+			}
+			if *flagLineNumber {
+				fmt.Fprintf(file, "%d:", s.line[i])
+				// fmt.Fprintf(w, "%d:", s.line[i])
+			}
+			file.WriteString(m) // the matching line
+			// w.WriteString(m) // the matching line
 		}
 	}
-	w.Flush()
+	// w.Flush() // flush when you're done
+
+	// signal completion to main program
+	done <- true // all scanning is complete
+}
+
+func println(v ...interface{}) {
+	if *flagLog != "" {
+		log.Println(v...)
+	}
+}
+
+func printf(f string, v ...interface{}) {
+	if *flagLog != "" {
+		log.Printf(f, v...)
+	}
 }
