@@ -17,31 +17,20 @@ var flagOutput = flag.String("output", "", `write output to named file (or "[std
 var flagRecursive = flag.Bool("r", false, "grep directories recursively")
 var flagVisible = flag.Bool("visible", true, `limit grep to visible files (skip ".hidden.go")`)
 
-// token class inclusion
-// a: search all of the following
-// c: search Comments ("//..." or "/*...*/")
-// d: search Defined non-types (iota, nil, new, true,...)
-// i: search Identifiers ([a-zA-Z][a-zA-Z0-9]*)
-// k: search Keywords (if, for, func, go, ...)
-// n: search Numbers as strings (255 as 255, 0.255, 1e255)
-// o: search Operators (,+-*/[]{}()>>...)
-// p: search Package names
-// r: search Rune literals ('a', '\U00101234')
-// s: search Strings ("quoted" or `raw`)
-// t: search Types (bool, int, float64, map, ...)
-// v: search numeric Values (255 as 0b1111_1111, 0377, 255, 0xff)
-var C, D, I, K, N, O, P, R, S, T, V bool
+// grep-compatibility flags
+var flagFileName = flag.Bool("h", false, "disply file name for each match")
+var flagLineNumber = flag.Bool("n", false, "disply line number for each match")
 
 var usage = `NAME
      gg − grep Go‐language source code
 
 SYNOPSIS
-    gg [options] acdiknoprstv regexp [file ...]
+    gg [options] agcdiknoprstv regexp [file ...]
 
 DESCRIPTION
-    gg  is  grep  (g/RE/p) with flag‐enabled Go token classes: identifiers,
+    gg is classic grep (g/RE/p) with Go token search direction: identifiers,
     package names, numbers, comments, keywords, and the like. The flags and
-    classes are "acdiknoprstv" in any order and combination.
+    classes include "agcdiknoprstv" in any order and combination.
 
         a: search in All of the following
         c: search in Comments (//... or /*...*/)
@@ -54,18 +43,18 @@ DESCRIPTION
         r: search in Rune literals (’a’, ’\U00101234’)
         s: search in Strings (quoted or raw)
         t: search in Types (bool, int, float64, map, ...)
-		v: search in Values (255 is 0b11111111, 0377, 255, 0xff)
-		g: search as grep, perform line-by-line matches in file
+        v: search in Values (255 is 0b11111111, 0377, 255, 0xff)
+        g: search as grep, perform line-by-line matches in file
 
     gg  combines  lexical analysis and Go‐native pattern matching to extend
     grep(1) for Go developers.  The search is restricted,  seeking  matches
     only  in  chosen  token classes.  A search in number literals can match
     values, "v 255" matches  the  numeric  value  255  in  source  code  as
     0b1111_1111,  0377,  0o377,  255,  0xff, etc.  Go’s linear‐time regular
-    expression engine is Unicode aware and supports many  Perl  extensions,
+    expression engine is Unicode-aware and supports many  Perl  extensions,
     so  numbers in identifiers are found by "gg i [0‐9]" or "gg i [\d]" and
     comments containing math symbols are found  by  "gg  c  \p{Sm}"   (with
-    appropriate shell escaping).
+    appropriate shell escaping). Refer to SEE ALSO for details.
 
     gg  searches  files named on the command line or in a list of filenames
     provided the "‐list" argument.  If neither is present,  gg  reads  file
@@ -83,11 +72,15 @@ DESCRIPTION
     source file in that directory’s hierarchy.
 
 OPTIONS
-    −cpu=n
-        Set the number of CPUs to use.  Default is all.
+    −cpu=n Set the number of CPUs to use. Negative n  means  "all  but  n."
+        Default is all.
 
     −go=bool
         Limit search to ".go" files.  Default is true.
+
+    −h=bool
+        Display file names ("headers") on matches.  Default is false for
+        single‐file searches and true otherwise.
 
     −list=file
         Search files listed one per line in the named file.
@@ -96,6 +89,9 @@ OPTIONS
         Write a log of execution details to a named file.   The  special
         file  names  "[stdout]"  and  "[stderr]" refer to the stdout and
         stderr streams.
+
+     −n=bool
+        Display line numbers with matches.  Default is false.
 
     −output=file
         gg output is normally to stdout but may be directed to  a  named
@@ -143,7 +139,7 @@ SEE ALSO
 func main() {
 	// parse command line before configuring logging (to allow "-log xyz.txt")
 	flag.Usage = func() {
-		fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
+		// fmt.Fprintf(flag.CommandLine.Output(), "Usage of %s:\n", os.Args[0])
 		// flag.PrintDefaults()
 		fmt.Fprintf(flag.CommandLine.Output(), "\n%s", usage)
 	}
@@ -168,12 +164,10 @@ func main() {
 
 	// control concurrency for testing (no disadvantage for maximal concurrrency)
 	if *flagCPUs != 1 {
-		if *flagCPUs == 0 {
-			// claim CPUs
+		if *flagCPUs == 0 { // claim CPUs
 			*flagCPUs = runtime.NumCPU()
-		} else if *flagCPUs < 0 {
-			// spare CPUs
-			*flagCPUs += runtime.NumCPU() // "-cpu -2" ==> "max(num CPUs - 2, 1)"
+		} else if *flagCPUs < 0 { // spare CPUs
+			*flagCPUs += runtime.NumCPU() // "-cpu -2" ==> "all but 2 CPUs"
 			if *flagCPUs < 1 {
 				*flagCPUs = 1
 			}
@@ -183,6 +177,10 @@ func main() {
 	if flag.NArg() < 2 {
 		fmt.Fprintf(os.Stderr, "usage: gg [flags] tokens regexp [file ...]\n")
 		os.Exit(1)
+	}
+
+	if *flagRecursive {
+		*flagFileName = true
 	}
 
 	// perform actual work
