@@ -1,14 +1,15 @@
 \# gg manpage
+\# nroff -man gg.1
 \# groff -t -e -mandoc -Tps gg.1 > gg.ps
 .TH GG 1
 .SH NAME
 gg \- grep Go-language source code
 .SH SYNOPSIS
-gg [\fIoptions\fR] \fIacdiknoprstv\fR \fIregexp\fR [\fIfile ...\fR]
+gg [\fIoptions\fR] \fIacdiknoprstvg\fR \fIregexp\fR [\fIfile ...\fR]
 .SH DESCRIPTION
-gg is grep (g/RE/p) with flag-enabled Go token classes: identifiers, package names,
-numbers, comments, keywords, and the like. The flags and classes are "acdiknoprstv" in any
-order and combination.
+gg is classic grep (g/RE/p) with flag-directed Go token focus to search in
+package names, numbers, identifiers, comments, keywords, and more.
+Token flags are "acdiknoprstvg" in any order or combination:
 .PP
 .RS
 .nf
@@ -34,9 +35,10 @@ for Go developers.
 The search is restricted, seeking matches only in chosen token classes.
 A search in number literals can match \fIvalues\fR, "v 255" matches the numeric value 255
 in source code as 0b1111_1111, 0377, 0o377, 255, 0xff, etc.
-Go's linear-time regular expression engine is Unicode aware and supports many Perl extensions, so
+Go's linear-time regular expression engine is Unicode-aware and supports many Perl extensions, so
 numbers in identifiers are found by "gg i [0-9]" or "gg i [\\d]"
-and comments containing math symbols are found by "gg c \\p{Sm}"  (with appropriate shell escaping).
+and comments containing math symbols are found by "gg c \\p{Sm}"
+(with appropriate shell escaping). Refer to SEE ALSO for details.
 .PP
 gg searches files named on the command line or a list of filenames provided
 the "-list" argument.
@@ -55,12 +57,16 @@ each Go source file in that directory's hierarchy.
 .SH OPTIONS
 .TP
 .BR \-cpu =\fIn\fR
-Set the number of CPUs to use.
+Set the number of CPUs to use. Negative n means "all but n."
 Default is all.
 .TP
 .BR \-go =\fIbool\fR
 Limit search to ".go" files.
 Default is true.
+.TP
+.BR \-h =\fIbool\fR
+Display file names ("headers") on matches.
+Default is false for single-file searches and true otherwise.
 .TP
 .BR \-list =\fIfile\fR
 Search files listed one per line in the named file.
@@ -68,6 +74,10 @@ Search files listed one per line in the named file.
 .BR \-log =\fIfile\fR
 Write a log of execution details to a named file.
 The special file names "[stdout]" and "[stderr]" refer to the stdout and stderr streams.
+.TP
+.BR \-n =\fIbool\fR
+Display line numbers with matches.
+Default is false.
 .TP
 .BR \-output =\fIfile\fR
 gg output is normally to stdout but may be directed to a named file.
@@ -81,7 +91,7 @@ Default is false.
 Restrict search to visible files, those with names that do not start with "." (in the shell tradition).
 Default is true.
 .TP
-.BR \fIagcdiknoprstvCDIKNOPRSTV\fR
+.BR \fIacdiknoprstvCDIKNOPRSTVg\fR
 The Go token class flags have an upper case negative form to disable the indicated class.
 Used with "a" for "all", "aCS" means "search All tokens except Comments and Strings."
 Flag "g" means search as if the grep command, ignore Go lexical analysis and match lines.
