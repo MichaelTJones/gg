@@ -150,7 +150,7 @@ func doScan() {
 		scanned = true
 	}
 
-	// scan files named in standard input if nothing surveyed yet.
+	// scan files named in standard input if nothing scanned yet.
 	if !scanned {
 		println("processing files listed in standard input")
 		scanner := bufio.NewScanner(os.Stdin)
@@ -252,11 +252,11 @@ func decompress(oldName string, oldData []byte) (newName string, newData []byte,
 	if ext != ".go" {
 		// Decompress the name ("sample.go.zst" → "sample.go")
 		newName = strings.TrimSuffix(oldName, ext)
-		printf("  %8d → %8d bytes (%6.3f×)  decompress and survey %s",
+		printf("  %8d → %8d bytes (%6.3f×)  decompress and scan %s",
 			oldSize, len(newData), float64(len(newData))/float64(oldSize), oldName)
 	} else {
 		newName = oldName
-		printf("  %8d bytes  survey %s", len(newData), oldName)
+		printf("  %8d bytes  scan %s", len(newData), oldName)
 	}
 
 	return newName, newData, nil
@@ -498,7 +498,7 @@ func (s *Scan) Scan(name string, source []byte) {
 	}
 
 	switch {
-	case name != "": // another file to survey
+	case name != "": // another file to scan
 		switch *flagCPUs {
 		case 1:
 			s.scan(name, source) // synchronous...wait for scan to complete
@@ -530,7 +530,7 @@ func (s *Scan) scan(name string, source []byte) {
 	lexer := &lex.Lexer{Input: string(source), Mode: lex.ScanGo} // | lex.SkipSpace}
 	expectPackageName := false
 
-	// Perform the survey by tabulating token types, subtypes, and values
+	// Perform the scan by tabulating token types, subtypes, and values
 	for tok, text := lexer.Scan(); tok != lex.EOF; tok, text = lexer.Scan() {
 		// go mini-parser: expect package name after "package" keyword
 		if expectPackageName && tok == lex.Identifier {
@@ -608,20 +608,20 @@ func (s *Scan) Combine(c *Scan) {
 	s.combined = append(s.combined, c)
 }
 
-// Complete a survey
+// Complete a scan
 func (s *Scan) Complete() {
 	// Completion is a one-time operation. if already done, it must not be done again.
 	if s.complete {
 		return
 	}
 
-	// Signal end of survey, await asynchronous completion, and combine all results.
+	// Signal end of scan, await asynchronous completion, and combine all results.
 	s.Scan("", nil)
 	s.complete = true
 }
 
 func (s *Scan) Report() {
-	// complete survey (if not already the case)
+	// complete scan (if not already the case)
 	if !s.complete {
 		s.Complete()
 	}
