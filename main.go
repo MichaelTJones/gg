@@ -28,9 +28,9 @@ SYNOPSIS
     gg [options] agcdiknoprstv regexp [file ...]
 
 DESCRIPTION
-    gg is classic grep (g/RE/p) with Go token search direction: identifiers,
-    package names, numbers, comments, keywords, and the like. The flags and
-    classes include "agcdiknoprstv" in any order and combination.
+    gg is classic grep (g/RE/p) with flag‐directed Go token focus to search
+    in package names, numbers, identifiers, comments, keywords,  and  more.
+    Token flags are "acdiknoprstvg" in any order or combination:
 
         a: search in All of the following
         c: search in Comments (//... or /*...*/)
