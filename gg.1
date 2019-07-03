@@ -24,6 +24,7 @@ r: search in Rune literals ('a', '\\U00101234')
 s: search in Strings (quoted or raw)
 t: search in Types (bool, int, float64, map, ...)
 v: search in Values (255 is 0b11111111, 0377, 255, 0xff)
+g: search as grep, perform line-by-line matches in file
 .fi
 .RE
 .PP
@@ -37,9 +38,9 @@ Go's linear-time regular expression engine is Unicode aware and supports many Pe
 numbers in identifiers are found by "gg i [0-9]" or "gg i [\\d]"
 and comments containing math symbols are found by "gg c \\p{Sm}"  (with appropriate shell escaping).
 .PP
-gg searches files named on the command line or in a list of filenames provided
+gg searches files named on the command line or a list of filenames provided
 the "-list" argument.
-If neither is present, gg reads file names from the standard input.
+If neither of these is present, gg reads file names from the standard input.
 This last is useful in shell pipelines such as "find . -name "*.go" | gg k fallthrough"
 .PP
 Files are Go source files or directories.
@@ -80,9 +81,10 @@ Default is false.
 Restrict search to visible files, those with names that do not start with "." (in the shell tradition).
 Default is true.
 .TP
-.BR \fIacdiknoprstvCDIKNOPRSTV\fR
+.BR \fIagcdiknoprstvCDIKNOPRSTV\fR
 The Go token class flags have an upper case negative form to disable the indicated class.
-Used with "a", "aCS" means "search All tokens except Comments and Strings."
+Used with "a" for "all", "aCS" means "search All tokens except Comments and Strings."
+Flag "g" means search as if the grep command, ignore Go lexical analysis and match lines.
 .SH EXAMPLES
 To search for comments containing "case" (ignoring switch statements) in the
 ".go" files of the current working directory, use the command:
