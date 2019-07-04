@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/MichaelTJones/lex"
 	"github.com/cavaliercoder/go-cpio"
@@ -46,105 +47,123 @@ var G, C, D, I, K, N, O, P, R, S, T, V bool
 
 // matching
 var regex *regexp.Regexp // pattern
-var sign int             // literal sign
-var vInt uint64          // literal value
+
+var sign int // literal sign
+var vIsInt bool
+var vInt uint64    // literal value
+var vFloat float64 // literal value
 
 func doScan() {
-	if flag.NArg() < 2 {
-		return
-	}
-
 	s := NewScan()
-
-	// handle "all" flag first before subsequent upper-case anti-flags
-	if strings.Contains(flag.Arg(0), "a") {
-		C = true
-		D = true
-		I = true
-		K = true
-		N = true
-		O = true
-		P = true
-		R = true
-		S = true
-		T = true
-		V = true
+	fixedArgs := 2
+	if *flagActLikeGrep {
+		fixedArgs = 1
 	}
-	// initialize token class inclusion flags
-	for _, class := range flag.Arg(0) {
-		switch class {
-		case 'a':
-			// already noted
-		case 'c':
-			C = true
-		case 'C':
-			C = false
-		case 'd':
-			D = true
-		case 'D':
-			D = false
-		case 'g':
-			G = true
-		case 'i':
-			I = true
-		case 'I':
-			I = false
-		case 'k':
-			K = true
-		case 'K':
-			K = false
-		case 'n':
-			N = true
-		case 'N':
-			N = false
-		case 'o':
-			O = true
-		case 'O':
-			O = false
-		case 'p':
-			P = true
-		case 'P':
-			P = false
-		case 'r':
-			R = true
-		case 'R':
-			R = false
-		case 's':
-			S = true
-		case 'S':
-			S = false
-		case 't':
-			T = true
-		case 'T':
-			T = false
-		case 'v':
-			V = true
-		case 'V':
-			V = false
-		default:
-			fmt.Fprintf(os.Stderr, "error: unrecognized token class '%c'\n", class)
-		}
+
+	if flag.NArg() < fixedArgs {
+		return
 	}
 
 	// initialize regular expression matcher
 	var err error
-	regex, err = regexp.Compile(flag.Arg(1))
+	regex, err = regexp.Compile(flag.Arg(fixedArgs - 1))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return
 	}
 
-	// initialize numeric value matcher
-	if V && len(flag.Arg(1)) > 0 {
-		n := flag.Arg(1)
-		if n[0] == '-' {
-			sign = -1
-			n = n[1:]
+	if !*flagActLikeGrep {
+		// handle "all" flag first before subsequent upper-case anti-flags
+		if strings.Contains(flag.Arg(0), "a") {
+			C = true
+			D = true
+			I = true
+			K = true
+			N = true
+			O = true
+			P = true
+			R = true
+			S = true
+			T = true
+			V = true
 		}
-		vInt, err = strconv.ParseUint(n, 0, 64)
-		if err != nil {
-			V = false
-			// fmt.Fprintf(os.Stderr, "error: %v\n", err)
+
+		// initialize token class inclusion flags
+		for _, class := range flag.Arg(0) {
+			switch class {
+			case 'a':
+				// already noted
+			case 'c':
+				C = true
+			case 'C':
+				C = false
+			case 'd':
+				D = true
+			case 'D':
+				D = false
+			case 'g':
+				G = true
+			case 'i':
+				I = true
+			case 'I':
+				I = false
+			case 'k':
+				K = true
+			case 'K':
+				K = false
+			case 'n':
+				N = true
+			case 'N':
+				N = false
+			case 'o':
+				O = true
+			case 'O':
+				O = false
+			case 'p':
+				P = true
+			case 'P':
+				P = false
+			case 'r':
+				R = true
+			case 'R':
+				R = false
+			case 's':
+				S = true
+			case 'S':
+				S = false
+			case 't':
+				T = true
+			case 'T':
+				T = false
+			case 'v':
+				V = true
+			case 'V':
+				V = false
+			default:
+				fmt.Fprintf(os.Stderr, "error: unrecognized token class '%c'\n", class)
+			}
+		}
+
+		// initialize numeric value matcher
+		if V && len(flag.Arg(1)) > 0 {
+			n := flag.Arg(1)
+			if n[0] == '-' {
+				sign = -1
+				n = n[1:]
+			}
+			vInt, err = strconv.ParseUint(n, 0, 64)
+			vIsInt = true
+			if err != nil {
+				// we did not consume all the input...maybe it is a float.
+				vFloat, err = strconv.ParseFloat(n, 64)
+				_ = vFloat + -5.25
+				if err != nil {
+					V = false
+					fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				} else {
+					vIsInt = false
+				}
+			}
 		}
 	}
 
@@ -160,12 +179,12 @@ func doScan() {
 	}
 
 	// scan files named on command line.
-	if flag.NArg() > 2 {
+	if flag.NArg() > fixedArgs {
 		println("processing files listed on command line")
-		if flag.NArg() > 3 {
+		if flag.NArg() > fixedArgs+1 {
 			*flagFileName = true // multiple files...print names
 		}
-		for _, v := range flag.Args()[2:] {
+		for _, v := range flag.Args()[fixedArgs:] {
 			s.File(v)
 		}
 		scanned = true
@@ -538,7 +557,7 @@ func (s *Scan) scan(name string, source []byte) {
 	s.path = newName
 
 	// handle grep mode
-	if G {
+	if *flagActLikeGrep || G {
 		scanner := bufio.NewScanner(bytes.NewReader(source))
 		line := uint32(1)
 		for scanner.Scan() {
@@ -613,17 +632,27 @@ func (s *Scan) scan(name string, source []byte) {
 			handle(N) // literal match
 			// introducing... the value match
 			if V && lexer.Line > line {
-				var nS int
-				var nI uint64
 				n := text
+				var nS int
 				if n[0] == '-' { // never used, but someday...
 					nS = -1
 					n = n[1:]
 				}
-				nI, err = strconv.ParseUint(n, 0, 64)
-				if err == nil && nS == sign && nI == vInt {
-					s.match = append(s.match, lexer.GetLine()) // match the token but print the line
-					line = lexer.Line
+				switch vIsInt {
+				case true:
+					var nI uint64
+					nI, err = strconv.ParseUint(n, 0, 64)
+					if err == nil && nS == sign && nI == vInt {
+						s.match = append(s.match, lexer.GetLine()) // match the token but print the line
+						line = lexer.Line
+					}
+				case false:
+					var nF float64
+					nF, err = strconv.ParseFloat(n, 64)
+					if err == nil && nS == sign && nF == vFloat {
+						s.match = append(s.match, lexer.GetLine()) // match the token but print the line
+						line = lexer.Line
+					}
 				}
 			}
 		case lex.Keyword:
@@ -720,4 +749,22 @@ func printf(f string, v ...interface{}) {
 	if *flagLog != "" {
 		log.Printf(f, v...)
 	}
+}
+
+func plural(n int, fill string) string {
+	if n == 1 {
+		return fill
+	}
+	return "s"
+}
+
+func getResourceUsage() (user, system float64, size uint64) {
+	var usage syscall.Rusage
+	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &usage); err != nil {
+		println("Error: unable to gather resource usage data:", err)
+	}
+	user = float64(usage.Utime.Sec) + float64(usage.Utime.Usec)/1e6   // work by this process
+	system = float64(usage.Stime.Sec) + float64(usage.Stime.Usec)/1e6 // work by OS on behalf of this process (reading files)
+	size = uint64(uint32(usage.Maxrss))
+	return
 }

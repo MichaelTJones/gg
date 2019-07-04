@@ -12,5 +12,3 @@ example:
 
 * Searching a file hierarchy _recursively_ for _comments_ containing "case" (but not
   switch statements), is "gg -r -c case ."
-
-gg is a Go program several times the speed of the standard grep.

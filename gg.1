@@ -1,6 +1,15 @@
+.do xflag 3
+.minss 9
+.letadj 95 98 18 105 102
+\# .hypp 100
+.padj
+\# .fp 0 AG Times.ttf ttf
+\#t.f AG
 \# gg manpage
 \# nroff -man gg.1
 \# groff -t -e -mandoc -Tps gg.1 > gg.ps
+\# troff -t -mandoc gg.1 | dpost > gg.ps
+\# tbl -g gg.1 | troff -t -mandoc | dpost > gg.ps
 .TH GG 1
 .SH NAME
 gg \- grep Go-language source code
@@ -12,21 +21,22 @@ package names, numbers, identifiers, comments, keywords, and more.
 Token flags are "acdiknoprstvg" in any order or combination:
 .PP
 .RS
-.nf
-a: search in All of the following
-c: search in Comments (//... or /*...*/)
-d: search in Defined non-types (iota, nil, new, true,...)
-i: search in Identifiers ([alphabetic][alphabetic | numeric]*)
-k: search in Keywords (if, for, func, go, ...)
-n: search in Numbers ("255" matches 255, 0.255, 1e255)
-o: search in Operators ( , \^ + \^ - \^ * \^ / \^ [ \^ ] \^{ \^ } \^ (\^ ) \^ >>\^ ...)
-p: search in Package names
-r: search in Rune literals ('a', '\\U00101234')
-s: search in Strings (quoted or raw)
-t: search in Types (bool, int, float64, map, ...)
-v: search in Values (255 is 0b11111111, 0377, 255, 0xff)
-g: search as grep, perform line-by-line matches in file
-.fi
+.TS
+c l.
+a	search in All of the following
+c	search in Comments (//... or /*...*/)
+d	search in Defined non-types (iota, nil, new, true,...)
+i	search in Identifiers ([alphabetic][alphabetic | numeric]*)
+k	search in Keywords (if, for, func, go, ...)
+n	search in Numbers ("255" matches 255, 0.255, 1e255)
+o	search in Operators (, \^ + \^ - \^ * \^ / \^ [ \^ ] \^{ \^ } \^ (\^ ) \^ >>\^...)
+p	search in Package names
+r	search in Rune literals ('a', '\\U00101234')
+s	search in Strings (quoted or raw)
+t	search in Types (bool, int, float64, map, ...)
+v	search in Values (255 is 0b11111111, 0377, 255, 0xff)
+g	search as grep, perform simple line-by-line matches in file
+.TE
 .RE
 .PP
 gg combines lexical analysis and Go-native pattern matching to extend
@@ -35,17 +45,17 @@ for Go developers.
 The search is restricted, seeking matches only in chosen token classes.
 A search in number literals can match \fIvalues\fR, "v 255" matches the numeric value 255
 in source code as 0b1111_1111, 0377, 0o377, 255, 0xff, etc.
-Go's linear-time regular expression engine is Unicode-aware and supports many Perl extensions, so
-numbers in identifiers are found by "gg i [0-9]" or "gg i [\\d]"
-and comments containing math symbols are found by "gg c \\p{Sm}"
-(with appropriate shell escaping). Refer to SEE ALSO for details.
+Go's linear-time regular expression engine is Unicode-aware and supports
+many Perl extensions: numbers in identifiers are found with "gg i [0-9]" or "gg i [\\d]",
+comments with math symbols by "gg c \\p{Sm}", and Greek in strings via "gg s \\p{Greek}"
+each with appropriate shell escaping.
 .PP
-gg searches files named on the command line or a list of filenames provided
+gg searches files names listed on the command line or in a file of filenames provided
 the "-list" argument.
-If neither of these is present, gg reads file names from the standard input.
-This last is useful in shell pipelines such as "find . -name "*.go" | gg k fallthrough"
+If neither of these is present, gg reads file names from the standard input which is useful
+in shell pipelines such as "find . -name "*.go" | gg k fallthrough"
 .PP
-Files are Go source files or directories.
+Files are Go source code files or directories.
 Source files include typical ".go"
 files; compressed ".go" files named ".go.bz2", ".go.gz", or ".go.zst" for Bzip2, Gzip,
 and ZStandard compression formats; archives of any such files in the formats "a.cpio",
@@ -53,7 +63,7 @@ and ZStandard compression formats; archives of any such files in the formats "a.
 If a named file is a directory then all Go source files in that directory are scanned
 without visiting subdirectories.
 With the "-r" flag enabled, named directories are processed recursively, scanning
-each Go source file in that directory's hierarchy.
+each Go source file or archive in that directory's hierarchy.
 .SH OPTIONS
 .TP
 .BR \-cpu =\fIn\fR
@@ -74,9 +84,10 @@ Search files listed one per line in the named file.
 .BR \-log =\fIfile\fR
 Write a log of execution details to a named file.
 The special file names "[stdout]" and "[stderr]" refer to the stdout and stderr streams.
+(Last line of log details efficiency.)
 .TP
 .BR \-n =\fIbool\fR
-Display line numbers with matches.
+Display line numbers following each match. Numbers count from one per file.
 Default is false.
 .TP
 .BR \-output =\fIfile\fR
@@ -96,8 +107,8 @@ The Go token class flags have an upper case negative form to disable the indicat
 Used with "a" for "all", "aCS" means "search All tokens except Comments and Strings."
 Flag "g" means search as if the grep command, ignore Go lexical analysis and match lines.
 .SH EXAMPLES
-To search for comments containing "case" (ignoring switch statements) in the
-".go" files of the current working directory, use the command:
+To search for comments containing "case" (ignoring switch statements) in every
+".go" file in the current working directory, use the command:
 .PP
 .nf
 .RS
