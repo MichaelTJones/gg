@@ -1,7 +1,9 @@
 
 # gg: Go Grep
 
-gg is a grep tool for Go-language source code. It restricts the search to
+gg is a grep tool for Go-language source code. 
+
+It restricts the search to
 designated Go token classes, such as identifiers, package names, numbers, comments, keywords, and
 the like. Because gg understands what it is searching for, it can make smart matches. For
 example:
