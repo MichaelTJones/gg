@@ -1,6 +1,4 @@
 
-# gg: Go Grep
-
 gg is a grep tool for Go-language source code. 
 
 It restricts the search to
