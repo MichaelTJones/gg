@@ -1,5 +1,5 @@
 
-# gg is a grep tool for Go-language source code.
+# gg is grep for Go-language source code
 
 It restricts the search to
 designated Go token classes, such as identifiers, package names, numbers, comments, keywords, and
