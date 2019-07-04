@@ -12,3 +12,5 @@ example:
 
 * Searching a file hierarchy _recursively_ for _comments_ containing "case" (but not
   switch statements), is "gg -r -c case ."
+
+Details are in manpage: gg.pdf
