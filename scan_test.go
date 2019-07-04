@@ -119,3 +119,59 @@ func Test_visibleWithoutFlagSet(t *testing.T) {
 		})
 	}
 }
+
+func Test_isCompressed(t *testing.T) {
+	type args struct {
+		name string
+	}
+	tests := []struct {
+		name string
+		args func(t *testing.T) args
+
+		want1 bool
+	}{
+		{
+			name: ".bz2 is a valid compression",
+			args: func(*testing.T) args {
+				return args{name: "test.bz2"}
+			},
+			want1: true,
+		},
+
+		{
+			name: ".gz is a valid compression",
+			args: func(*testing.T) args {
+				return args{name: "test.gz"}
+			},
+			want1: true,
+		},
+
+		{
+			name: ".zst is a valid compression",
+			args: func(*testing.T) args {
+				return args{name: "test.zst"}
+			},
+			want1: true,
+		},
+
+		{
+			name: ".go isn't a valid compression",
+			args: func(*testing.T) args {
+				return args{name: "test.go"}
+			},
+			want1: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tArgs := tt.args(t)
+
+			got1 := isCompressed(tArgs.name)
+
+			if !reflect.DeepEqual(got1, tt.want1) {
+				t.Errorf("isCompressed got1 = %v, want1: %v", got1, tt.want1)
+			}
+		})
+	}
+}
