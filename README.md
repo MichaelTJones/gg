@@ -14,3 +14,11 @@ example:
   switch statements), is "gg -r -c case ."
 
 Details are in manpage: gg.pdf
+
+## Installation
+
+```
+go get github.com/MichaelTJones/gg
+cd gg
+go install
+```
