@@ -164,16 +164,7 @@ func main() {
 	}
 
 	// control concurrency for testing (no disadvantage for maximal concurrrency)
-	if *flagCPUs != 1 {
-		if *flagCPUs == 0 { // claim CPUs
-			*flagCPUs = runtime.NumCPU()
-		} else if *flagCPUs < 0 { // spare CPUs
-			*flagCPUs += runtime.NumCPU() // "-cpu -2" ==> "all but 2 CPUs"
-			if *flagCPUs < 1 {
-				*flagCPUs = 1
-			}
-		}
-	}
+	*flagCPUs = getMaxCPU()
 
 	// bonus feature
 	// If you make a symbolic link to the executable or otherwise rename it from "gg" then it
@@ -203,4 +194,19 @@ func main() {
 		printf("  %3d worker%s (parallel speedup = %.2f x)\n",
 			*flagCPUs, plural(*flagCPUs, ""), (user+system)/elapsed)
 	}
+}
+
+func getMaxCPU() int {
+	if *flagCPUs != 1 {
+		if *flagCPUs == 0 { // claim CPUs
+			return runtime.NumCPU()
+		} else if *flagCPUs < 0 { // spare CPUs
+			res := *flagCPUs + runtime.NumCPU() // "-cpu -2" ==> "all but 2 CPUs"
+			if res < 1 {
+				return 1
+			}
+			return res
+		}
+	}
+	return 1
 }
