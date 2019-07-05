@@ -22,6 +22,11 @@ var flagVisible = flag.Bool("visible", true, `limit grep to visible files (skip 
 var flagActLikeGrep = flag.Bool("g", false, "act like grep")
 var flagFileName = flag.Bool("h", false, `disply file name ("header") for each match`)
 var flagLineNumber = flag.Bool("n", false, "disply line number for each match")
+
+// secret developer flags
+var flagBufferWrites = flag.Bool("bufferWrites", true, "buffer output writes")
+var flagBufferSize = flag.Int("bufferSize", 64*1024, "output buffer size")
+
 var usage = `NAME
     gg - grep Go-language source code
 
@@ -195,13 +200,23 @@ func main() {
 
 	// perform actual work
 	start := time.Now()
-	doScan()
+	s := doScan()
 	elapsed := time.Since(start).Seconds()
+
+	// print summary
 	user, system, _ := getResourceUsage()
 	printf("performance")
-	printf("  %10.6f seconds elapsed\n", elapsed)
+	printf("  grep  %d matches\n", s.matches)
+	printf("  work  %d bytes, %d tokens, %d lines, %d files\n",
+		s.bytes, s.tokens, s.lines, s.files)
+	printf("  time  %.6f seconds\n", elapsed)
 	if elapsed > 0 {
-		printf("  %3d worker%s (parallel speedup = %.2f x)\n",
+		printf("  rate  %.0f bytes/sec, %.0f tokens/sec, %.0f lines/sec, %.0f files/sec\n",
+			float64(s.bytes)/elapsed,
+			float64(s.tokens)/elapsed,
+			float64(s.lines)/elapsed,
+			float64(s.files)/elapsed)
+		printf("  scale %d worker%s (parallel speedup = %.2fx)\n",
 			*flagCPUs, plural(*flagCPUs, ""), (user+system)/elapsed)
 	}
 }
