@@ -175,3 +175,119 @@ func Test_isCompressed(t *testing.T) {
 		})
 	}
 }
+
+func Test_isGoWithFlagSet(t *testing.T) {
+	*flagGo = true
+	type args struct {
+		name string
+	}
+	tests := []struct {
+		name string
+		args func(t *testing.T) args
+
+		want1 bool
+	}{
+		{
+			name: "go files should pass",
+			args: func(*testing.T) args {
+				return args{name: "test.go"}
+			},
+			want1: true,
+		},
+
+		{
+			name: "zip files should not pass",
+			args: func(*testing.T) args {
+				return args{name: "test.go.zip"}
+			},
+			// is this assertion right ?
+			want1: false,
+		},
+
+		{
+			name: "gz files should pass",
+			args: func(*testing.T) args {
+				return args{name: "test.go.gz"}
+			},
+			want1: true,
+		},
+
+		{
+			name: "bz2 files should pass",
+			args: func(*testing.T) args {
+				return args{name: "test.go.bz2"}
+			},
+			want1: true,
+		},
+
+		{
+			name: "zst files should pass",
+			args: func(*testing.T) args {
+				return args{name: "test.go.zst"}
+			},
+			want1: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tArgs := tt.args(t)
+
+			got1 := isGo(tArgs.name)
+
+			if !reflect.DeepEqual(got1, tt.want1) {
+				t.Errorf("isGo got1 = %v, want1: %v", got1, tt.want1)
+			}
+		})
+	}
+}
+
+func Test_isGoWithoutFlagSet(t *testing.T) {
+	// with this flag set to false our search isn't limited to .go files
+	*flagGo = false
+	type args struct {
+		name string
+	}
+	tests := []struct {
+		name string
+		args func(t *testing.T) args
+
+		want1 bool
+	}{
+		{
+			name: "go files should pass",
+			args: func(*testing.T) args {
+				return args{name: "test.go"}
+			},
+			want1: true,
+		},
+
+		{
+			name: "zipped go files should pass",
+			args: func(*testing.T) args {
+				return args{name: "test.go.zip"}
+			},
+			want1: true,
+		},
+
+		{
+			name: "anything should pass when flagGo = false",
+			args: func(*testing.T) args {
+				return args{name: "test.zip.exe"}
+			},
+			want1: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tArgs := tt.args(t)
+
+			got1 := isGo(tArgs.name)
+
+			if !reflect.DeepEqual(got1, tt.want1) {
+				t.Errorf("isGo got1 = %v, want1: %v", got1, tt.want1)
+			}
+		})
+	}
+}
