@@ -6,7 +6,10 @@ designated Go token classes, such as identifiers, package names, numbers, commen
 the like. Because gg understands what it is searching for, it can make smart matches. For
 example:
 
-* Searching for _numbers_ that match a value, say 255, no matter if expressed as 0b1111_1111, 0377, 255, or 0xff is easy with "gg -n 255 *.go"
+* Searching for _numbers_ that match a value, say 255, no matter if expressed as
+  0b1111_1111, 0377, 255, or 0xff is easy with "gg -n 255 *.go". Note: this is a Vaue "v"
+  search  not a Number "N" search; numbers support literals like 255 and regex patterns, like "2\[0-9\]\." but Values
+  must be valid  Go integer or floating point number literals. (22, 0xface, 2e16, ...)
 
 * Searching for "if" in code, but not in comments or strings, is "gg -k if ." for _keywords_ matching "if" in all the ".go" files in the current directory.
 
