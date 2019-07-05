@@ -291,3 +291,67 @@ func Test_isGoWithoutFlagSet(t *testing.T) {
 		})
 	}
 }
+
+func Test_isArchive(t *testing.T) {
+	type args struct {
+		name string
+	}
+	tests := []struct {
+		name string
+		args func(t *testing.T) args
+
+		want1 bool
+	}{
+		{
+			name: "tar is a valid archive format",
+			args: func(*testing.T) args {
+				return args{name: "test.tar"}
+			},
+			want1: true,
+		},
+
+		{
+			name: "zip is a valid archive format",
+			args: func(*testing.T) args {
+				return args{name: "test.zip"}
+			},
+			want1: true,
+		},
+
+		{
+			name: "cpio is a valid archive format",
+			args: func(*testing.T) args {
+				return args{name: "test.cpio"}
+			},
+			want1: true,
+		},
+
+		{
+			name: "cpio.bz2 is a valid archive format",
+			args: func(*testing.T) args {
+				return args{name: "test.cpio.bz2"}
+			},
+			want1: true,
+		},
+
+		{
+			name: "cpio.exe isn't a valid archive format",
+			args: func(*testing.T) args {
+				return args{name: "test.cpio.exe"}
+			},
+			want1: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tArgs := tt.args(t)
+
+			got1 := isArchive(tArgs.name)
+
+			if !reflect.DeepEqual(got1, tt.want1) {
+				t.Errorf("isArchive got1 = %v, want1: %v", got1, tt.want1)
+			}
+		})
+	}
+}
