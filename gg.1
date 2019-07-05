@@ -25,17 +25,17 @@ The token flags are "acdiknoprstvg" in any order or combination:
 c l.
 a	search in All of the following
 c	search in Comments (//... or /*...*/)
-d	search in Defined non-types (iota, nil, new, true,...)
+d	search in Defined non-types (iota, nil, new, true, ...)
 i	search in Identifiers ([alphabetic][alphabetic | numeric]*)
 k	search in Keywords (if, for, func, go, ...)
 n	search in Numbers (regex "255" matches 255, 0.255, 1e255)
-o	search in Operators (, \^ + \^ - \^ * \^ / \^ [ \^ ] \^{ \^ } \^ (\^ ) \^ >>\^...)
+o	search in Operators (, \^ + \^ - \^ * \^ / \^ [ \^ ] \^{ \^ } \^ (\^ ) \^ >>\^)
 p	search in Package names
 r	search in Rune literals ('a', '\\U00101234')
 s	search in Strings (quoted or raw)
 t	search in Types (bool, int, float64, map, ...)
-v	search in Values (number 255 == 0b11111111, 0377, 255, 0xff)
-g	search as grep, perform simple line-by-line matches in file
+v	search in Values (number 255 == 0b11111111, 0377, 0o377, 255, 0xff)
+g	search as grep, perform line-by-line matches in each file
 .TE
 .RE
 .PP
@@ -50,10 +50,10 @@ many Perl extensions: numbers in identifiers are found with "gg i [0-9]" or "gg 
 comments with math symbols by "gg c \\p{Sm}", and Greek in strings via "gg s \\p{Greek}"
 each with appropriate shell escaping.
 .PP
-gg searches files names listed on the command line or in a file of filenames provided
+gg searches files named on the command line or in a file of filenames provided by
 the "-list" argument.
-If neither of these is present, gg reads file names from the standard input which is useful
-in shell pipelines such as "find . -name "*.go" | gg k fallthrough"
+If neither of these is present, gg reads filenames from the standard input, which is useful
+in shell pipelines such as "find . -name '*.go' | gg k fallthrough"
 .PP
 Files are Go source code files or directories.
 Source files include typical ".go"
@@ -141,4 +141,5 @@ Michael T. Jones (https://github.com/MichaelTJones)
 .nf
 https://golang.org/pkg/regexp/syntax/
 https://en.wikipedia.org/wiki/Unicode_character_property
+Special features and options described in main.go
 .fi
