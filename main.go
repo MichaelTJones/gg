@@ -136,6 +136,7 @@ AUTHOR
 
 SEE ALSO
     https://golang.org/pkg/regexp/syntax/
+    https://github.com/google/re2/wiki/Syntax
     https://en.wikipedia.org/wiki/Unicode_character_property
 `
 
