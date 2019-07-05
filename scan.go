@@ -173,7 +173,7 @@ func doScan() Summary {
 	// scan files in the file of filenames indicated by the "-list" option.
 	if *flagList != "" {
 		println("processing files listed in the -list option")
-		*flagFileName = true
+		*flagFileName = true // presume multiple files...print names
 		s.List(*flagList)
 		scanned = true
 	}
@@ -199,7 +199,7 @@ func doScan() Summary {
 			s.File(scanner.Text())
 		}
 	}
-	summary := s.Complete()
+	summary := s.Complete() // parallel rendevousz here...will wait
 	println("scan ends")
 	return summary
 }
@@ -547,7 +547,7 @@ func (s *Scan) Scan(name string, source []byte) {
 			go worker(i)
 		}
 		done = make(chan Summary)
-		go reporter()
+		go reporter() // wait for and gather results
 		first = false
 	}
 
@@ -595,13 +595,23 @@ func (s *Scan) scan(name string, source []byte) {
 	lexer := &lex.Lexer{Input: string(source), Mode: lex.ScanGo} // | lex.SkipSpace}
 
 	expectPackageName := false
+	skip := false
+	// theWholeLine := ""
 	for tok, text := lexer.Scan(); tok != lex.EOF; tok, text = lexer.Scan() {
 		s.tokens++
+
+		// if !skip {
+		// 	theWholeLine = lexer.GetLine()
+		// 	if !regex.MatchString(theWholeLine) {
+		// 		skip = true
+		// 	}
+		// }
 
 		// go mini-parser: expect package name after "package" keyword
 		if expectPackageName && tok == lex.Identifier {
 			if P && regex.MatchString(text) {
 				s.match = append(s.match, lexer.GetLine())
+				// s.match = append(s.match, theWholeLine)
 				s.matches++
 				if *flagLineNumber {
 					s.line = append(s.line, uint32(lexer.Line))
@@ -613,29 +623,33 @@ func (s *Scan) scan(name string, source []byte) {
 		}
 
 		handle := func(flag bool) {
-			if flag && lexer.Line > line {
-				if lexer.Type == lex.String && lexer.Subtype == lex.Raw {
-					// match each line of the raw string individually
-					scanner := bufio.NewScanner(strings.NewReader(text))
-					lineInString := 0
-					for scanner.Scan() {
-						if regex.MatchString(scanner.Text()) {
-							s.match = append(s.match, scanner.Text()+"\n")
-							s.matches++
-							line = lexer.Line + lineInString
-							lineInString++
-							if *flagLineNumber {
-								s.line = append(s.line, uint32(line+1))
+			// if !skip {
+			if true || !skip {
+				if flag && lexer.Line > line {
+					if lexer.Type == lex.String && lexer.Subtype == lex.Raw {
+						// match each line of the raw string individually
+						scanner := bufio.NewScanner(strings.NewReader(text))
+						lineInString := 0
+						for scanner.Scan() {
+							if regex.MatchString(scanner.Text()) {
+								s.match = append(s.match, scanner.Text()+"\n")
+								s.matches++
+								line = lexer.Line + lineInString
+								lineInString++
+								if *flagLineNumber {
+									s.line = append(s.line, uint32(line+1))
+								}
 							}
 						}
-					}
-				} else if regex.MatchString(text) {
-					// match the token but print the line that contains it
-					s.match = append(s.match, lexer.GetLine())
-					s.matches++
-					line = lexer.Line
-					if *flagLineNumber {
-						s.line = append(s.line, uint32(line+1))
+					} else if regex.MatchString(text) {
+						// match the token but print the line that contains it
+						s.match = append(s.match, lexer.GetLine())
+						// s.match = append(s.match, theWholeLine)
+						s.matches++
+						line = lexer.Line
+						if *flagLineNumber {
+							s.line = append(s.line, uint32(line+1))
+						}
 					}
 				}
 			}
@@ -644,6 +658,7 @@ func (s *Scan) scan(name string, source []byte) {
 		switch tok {
 		case lex.Space:
 			if text == "\n" {
+				skip = false
 				s.lines++
 			}
 		case lex.Comment:
@@ -693,8 +708,6 @@ func (s *Scan) scan(name string, source []byte) {
 			// seems maningless match unexpected illegal characters, maybe "."?
 		}
 	}
-
-	// s.lines += lex.Line
 }
 
 // Complete a scan
@@ -778,6 +791,20 @@ func reporter() {
 			}
 
 			// finally, the match itself
+			start := 0
+			if *flagTrim {
+				for start < len(m) {
+					ch := m[start]
+					if ch == ' ' || ch == '\t' {
+						start++
+					} else {
+						break
+					}
+				}
+				if start < len(m) {
+					m = m[start:]
+				}
+			}
 			fmt.Fprintf(w, "%s", m)
 		}
 
@@ -789,7 +816,7 @@ func reporter() {
 	}
 
 	// signal completion to main program
-	done <- total // all scanning is complete
+	done <- total // scanning complete, here are totals
 }
 
 func println(v ...interface{}) {
