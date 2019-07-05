@@ -18,7 +18,10 @@ example:
 * Searching a file hierarchy recursively for _comments_ containing "case" (ignoring
   switch statements), is "gg -r c case ."
 
-gg does much more. Details are in the manpage: gg.pdf
+## Documentation
+
+gg does much more. Please see the [man
+page](https://github.com/MichaelTJones/gg/blob/master/gg.pdf) for details.
 
 ## Installation
 
