@@ -72,100 +72,8 @@ func doScan() {
 		return
 	}
 
-	if !*flagActLikeGrep {
-		// handle "all" flag first before subsequent upper-case anti-flags
-		if strings.Contains(flag.Arg(0), "a") {
-			C = true
-			D = true
-			I = true
-			K = true
-			N = true
-			O = true
-			P = true
-			R = true
-			S = true
-			T = true
-			V = true
-		}
-
-		// initialize token class inclusion flags
-		for _, class := range flag.Arg(0) {
-			switch class {
-			case 'a':
-				// already noted
-			case 'c':
-				C = true
-			case 'C':
-				C = false
-			case 'd':
-				D = true
-			case 'D':
-				D = false
-			case 'g':
-				G = true
-			case 'i':
-				I = true
-			case 'I':
-				I = false
-			case 'k':
-				K = true
-			case 'K':
-				K = false
-			case 'n':
-				N = true
-			case 'N':
-				N = false
-			case 'o':
-				O = true
-			case 'O':
-				O = false
-			case 'p':
-				P = true
-			case 'P':
-				P = false
-			case 'r':
-				R = true
-			case 'R':
-				R = false
-			case 's':
-				S = true
-			case 'S':
-				S = false
-			case 't':
-				T = true
-			case 'T':
-				T = false
-			case 'v':
-				V = true
-			case 'V':
-				V = false
-			default:
-				fmt.Fprintf(os.Stderr, "error: unrecognized token class '%c'\n", class)
-			}
-		}
-
-		// initialize numeric value matcher
-		if V && len(flag.Arg(1)) > 0 {
-			n := flag.Arg(1)
-			if n[0] == '-' {
-				sign = -1
-				n = n[1:]
-			}
-			vInt, err = strconv.ParseUint(n, 0, 64)
-			vIsInt = true
-			if err != nil {
-				// we did not consume all the input...maybe it is a float.
-				vFloat, err = strconv.ParseFloat(n, 64)
-				_ = vFloat + -5.25
-				if err != nil {
-					V = false
-					fmt.Fprintf(os.Stderr, "error: %v\n", err)
-				} else {
-					vIsInt = false
-				}
-			}
-		}
-	}
+	// gg mode
+	setupModeGG()
 
 	println("scan begins")
 	scanned := false
@@ -756,6 +664,150 @@ func plural(n int, fill string) string {
 		return fill
 	}
 	return "s"
+}
+
+type searchMode struct {
+	// c: search Comments ("//..." or "/*...*/")
+	C bool
+	// d: search Defined non-types (iota, nil, new, true,...)
+	D bool
+	// grep mode ?
+	G bool
+	// i: search Identifiers ([a-zA-Z][a-zA-Z0-9]*)
+	I bool
+	// k: search Keywords (if, for, func, go, ...)
+	K bool
+	// n: search Numbers as strings (255 as 255, 0.255, 1e255)
+	N bool
+	// o: search Operators (,+-*/[]{}()>>...)
+	O bool
+	// p: search Package names
+	P bool
+	// r: search Rune literals ('a', '\U00101234')
+	R bool
+	// s: search Strings ("quoted" or `raw`)
+	S bool
+	// t: search Types (bool, int, float64, map, ...)
+	T bool
+	// v: search numeric Values (255 as 0b1111_1111, 0377, 255, 0xff)
+	V bool
+}
+
+func parseFirstArg(input string) searchMode {
+	result := searchMode{}
+	// a: search all of the following
+	if strings.Contains(input, "a") {
+		result.C = true
+		result.D = true
+		result.I = true
+		result.K = true
+		result.N = true
+		result.O = true
+		result.P = true
+		result.R = true
+		result.S = true
+		result.T = true
+		result.V = true
+	}
+
+	// initialize token class inclusion flags
+	for _, class := range input {
+		switch class {
+		case 'a':
+			// already noted
+		case 'c':
+			result.C = true
+		case 'C':
+			result.C = false
+		case 'd':
+			result.D = true
+		case 'D':
+			result.D = false
+		case 'g':
+			result.G = true
+		case 'i':
+			result.I = true
+		case 'I':
+			result.I = false
+		case 'k':
+			result.K = true
+		case 'K':
+			result.K = false
+		case 'n':
+			result.N = true
+		case 'N':
+			result.N = false
+		case 'o':
+			result.O = true
+		case 'O':
+			result.O = false
+		case 'p':
+			result.P = true
+		case 'P':
+			result.P = false
+		case 'r':
+			result.R = true
+		case 'R':
+			result.R = false
+		case 's':
+			result.S = true
+		case 'S':
+			result.S = false
+		case 't':
+			result.T = true
+		case 'T':
+			result.T = false
+		case 'v':
+			result.V = true
+		case 'V':
+			result.V = false
+		default:
+			fmt.Fprintf(os.Stderr, "error: unrecognized token class '%c'\n", class)
+		}
+	}
+	return result
+}
+
+func setupModeGG() {
+	if !*flagActLikeGrep {
+		// handle "all" flag first before subsequent upper-case anti-flags
+		mode := parseFirstArg(flag.Arg(0))
+		C = mode.C
+		D = mode.D
+		G = mode.G
+		I = mode.I
+		K = mode.K
+		N = mode.N
+		O = mode.O
+		P = mode.P
+		R = mode.R
+		S = mode.S
+		T = mode.T
+		V = mode.V
+
+		// initialize numeric value matcher
+		if V && len(flag.Arg(1)) > 0 {
+			n := flag.Arg(1)
+			if n[0] == '-' {
+				sign = -1
+				n = n[1:]
+			}
+			var err error
+			vInt, err = strconv.ParseUint(n, 0, 64)
+			vIsInt = true
+			if err != nil {
+				// we did not consume all the input...maybe it is a float.
+				vFloat, err = strconv.ParseFloat(n, 64)
+				_ = vFloat + -5.25
+				if err != nil {
+					V = false
+					fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				} else {
+					vIsInt = false
+				}
+			}
+		}
+	}
 }
 
 func getResourceUsage() (user, system float64, size uint64) {

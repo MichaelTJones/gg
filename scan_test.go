@@ -355,3 +355,387 @@ func Test_isArchive(t *testing.T) {
 		})
 	}
 }
+
+func Test_parseFirstArg(t *testing.T) {
+	type args struct {
+		input string
+	}
+	tests := []struct {
+		name string
+		args func(t *testing.T) args
+
+		want1 searchMode
+	}{
+		{
+			name: "'a' should include all",
+			args: func(*testing.T) args {
+				return args{input: "a"}
+			},
+			want1: searchMode{
+				C: true,
+				D: true,
+				I: true,
+				K: true,
+				N: true,
+				O: true,
+				P: true,
+				R: true,
+				S: true,
+				T: true,
+				V: true,
+			},
+		},
+
+		{
+			name: "'c' should include only comments",
+			args: func(*testing.T) args {
+				return args{input: "c"}
+			},
+			want1: searchMode{
+				C: true,
+			},
+		},
+
+		{
+			name: "'aC' should only exclude comments",
+			args: func(*testing.T) args {
+				return args{input: "aC"}
+			},
+			want1: searchMode{
+				C: false,
+				D: true,
+				I: true,
+				K: true,
+				N: true,
+				O: true,
+				P: true,
+				R: true,
+				S: true,
+				T: true,
+				V: true,
+			},
+		},
+
+		{
+			name: "'d' should include only defined non-types",
+			args: func(*testing.T) args {
+				return args{input: "d"}
+			},
+			want1: searchMode{
+				D: true,
+			},
+		},
+
+		{
+			name: "'aD' should only exclude defined non-types",
+			args: func(*testing.T) args {
+				return args{input: "aD"}
+			},
+			want1: searchMode{
+				C: true,
+				D: false,
+				I: true,
+				K: true,
+				N: true,
+				O: true,
+				P: true,
+				R: true,
+				S: true,
+				T: true,
+				V: true,
+			},
+		},
+
+		{
+			name: "'i' should include only identifiers",
+			args: func(*testing.T) args {
+				return args{input: "i"}
+			},
+			want1: searchMode{
+				I: true,
+			},
+		},
+
+		{
+			name: "'aI' should only exclude identifiers",
+			args: func(*testing.T) args {
+				return args{input: "aI"}
+			},
+			want1: searchMode{
+				C: true,
+				D: true,
+				I: false,
+				K: true,
+				N: true,
+				O: true,
+				P: true,
+				R: true,
+				S: true,
+				T: true,
+				V: true,
+			},
+		},
+
+		{
+			name: "'k' should include only keywords",
+			args: func(*testing.T) args {
+				return args{input: "k"}
+			},
+			want1: searchMode{
+				K: true,
+			},
+		},
+
+		{
+			name: "'aK' should only exclude keywords",
+			args: func(*testing.T) args {
+				return args{input: "aK"}
+			},
+			want1: searchMode{
+				C: true,
+				D: true,
+				I: true,
+				K: false,
+				N: true,
+				O: true,
+				P: true,
+				R: true,
+				S: true,
+				T: true,
+				V: true,
+			},
+		},
+
+		{
+			name: "'n' should include only numbers",
+			args: func(*testing.T) args {
+				return args{input: "n"}
+			},
+			want1: searchMode{
+				N: true,
+			},
+		},
+
+		{
+			name: "'aN' should only exclude numbers",
+			args: func(*testing.T) args {
+				return args{input: "aN"}
+			},
+			want1: searchMode{
+				C: true,
+				D: true,
+				I: true,
+				K: true,
+				N: false,
+				O: true,
+				P: true,
+				R: true,
+				S: true,
+				T: true,
+				V: true,
+			},
+		},
+
+		{
+			name: "'o' should include only operators",
+			args: func(*testing.T) args {
+				return args{input: "o"}
+			},
+			want1: searchMode{
+				O: true,
+			},
+		},
+
+		{
+			name: "'aO' should only exclude operators",
+			args: func(*testing.T) args {
+				return args{input: "aO"}
+			},
+			want1: searchMode{
+				C: true,
+				D: true,
+				I: true,
+				K: true,
+				N: true,
+				O: false,
+				P: true,
+				R: true,
+				S: true,
+				T: true,
+				V: true,
+			},
+		},
+
+		{
+			name: "'p' should include only package names",
+			args: func(*testing.T) args {
+				return args{input: "p"}
+			},
+			want1: searchMode{
+				P: true,
+			},
+		},
+
+		{
+			name: "'aP' should only exclude package names",
+			args: func(*testing.T) args {
+				return args{input: "aP"}
+			},
+			want1: searchMode{
+				C: true,
+				D: true,
+				I: true,
+				K: true,
+				N: true,
+				O: true,
+				P: false,
+				R: true,
+				S: true,
+				T: true,
+				V: true,
+			},
+		},
+
+		{
+			name: "'r' should include only rune literals",
+			args: func(*testing.T) args {
+				return args{input: "r"}
+			},
+			want1: searchMode{
+				R: true,
+			},
+		},
+
+		{
+			name: "'aR' should only exclude rune literals",
+			args: func(*testing.T) args {
+				return args{input: "aR"}
+			},
+			want1: searchMode{
+				C: true,
+				D: true,
+				I: true,
+				K: true,
+				N: true,
+				O: true,
+				P: true,
+				R: false,
+				S: true,
+				T: true,
+				V: true,
+			},
+		},
+
+		{
+			name: "'s' should include only strings",
+			args: func(*testing.T) args {
+				return args{input: "s"}
+			},
+			want1: searchMode{
+				S: true,
+			},
+		},
+
+		{
+			name: "'aS' should only exclude strings",
+			args: func(*testing.T) args {
+				return args{input: "aS"}
+			},
+			want1: searchMode{
+				C: true,
+				D: true,
+				I: true,
+				K: true,
+				N: true,
+				O: true,
+				P: true,
+				R: true,
+				S: false,
+				T: true,
+				V: true,
+			},
+		},
+
+		{
+			name: "'t' should include only types",
+			args: func(*testing.T) args {
+				return args{input: "t"}
+			},
+			want1: searchMode{
+				T: true,
+			},
+		},
+
+		{
+			name: "'aT' should only exclude types",
+			args: func(*testing.T) args {
+				return args{input: "aT"}
+			},
+			want1: searchMode{
+				C: true,
+				D: true,
+				I: true,
+				K: true,
+				N: true,
+				O: true,
+				P: true,
+				R: true,
+				S: true,
+				T: false,
+				V: true,
+			},
+		},
+
+		{
+			name: "'v' should include only numeric values",
+			args: func(*testing.T) args {
+				return args{input: "v"}
+			},
+			want1: searchMode{
+				V: true,
+			},
+		},
+
+		{
+			name: "'aV' should only exclude numeric values",
+			args: func(*testing.T) args {
+				return args{input: "aV"}
+			},
+			want1: searchMode{
+				C: true,
+				D: true,
+				I: true,
+				K: true,
+				N: true,
+				O: true,
+				P: true,
+				R: true,
+				S: true,
+				T: true,
+				V: false,
+			},
+		},
+
+		{
+			name: "'g' should be grep mode",
+			args: func(*testing.T) args {
+				return args{input: "g"}
+			},
+			want1: searchMode{
+				G: true,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tArgs := tt.args(t)
+
+			got1 := parseFirstArg(tArgs.input)
+
+			if !reflect.DeepEqual(got1, tt.want1) {
+				t.Errorf("parseFirstArg got1 = %v, want1: %v", got1, tt.want1)
+			}
+		})
+	}
+}
