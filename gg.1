@@ -18,24 +18,24 @@ gg [\fIoptions\fR] \fIacdiknoprstvg\fR \fIregexp\fR [\fIfile ...\fR]
 .SH DESCRIPTION
 gg is classic grep (g/RE/p) with flag-directed Go token focus to search in
 package names, numbers, identifiers, comments, keywords, and more.
-Token flags are "acdiknoprstvg" in any order or combination:
+The token flags are "acdiknoprstvg" in any order or combination:
 .PP
 .RS
 .TS
 c l.
 a	search in All of the following
 c	search in Comments (//... or /*...*/)
-d	search in Defined non-types (iota, nil, new, true,...)
+d	search in Defined non-types (iota, nil, new, true, ...)
 i	search in Identifiers ([alphabetic][alphabetic | numeric]*)
 k	search in Keywords (if, for, func, go, ...)
-n	search in Numbers ("255" matches 255, 0.255, 1e255)
-o	search in Operators (, \^ + \^ - \^ * \^ / \^ [ \^ ] \^{ \^ } \^ (\^ ) \^ >>\^...)
+n	search in Numbers (regex "255" matches 255, 0.255, 1e255)
+o	search in Operators (, \^ + \^ - \^ * \^ / \^ [ \^ ] \^{ \^ } \^ (\^ ) \^ >>\^)
 p	search in Package names
 r	search in Rune literals ('a', '\\U00101234')
 s	search in Strings (quoted or raw)
 t	search in Types (bool, int, float64, map, ...)
-v	search in Values (255 is 0b11111111, 0377, 255, 0xff)
-g	search as grep, perform simple line-by-line matches in file
+v	search in Values (number 255 == 0b11111111, 0377, 0o377, 255, 0xff)
+g	search as grep, perform line-by-line matches in each file
 .TE
 .RE
 .PP
@@ -43,17 +43,17 @@ gg combines lexical analysis and Go-native pattern matching to extend
 .BR grep (1)
 for Go developers.
 The search is restricted, seeking matches only in chosen token classes.
-A search in number literals can match \fIvalues\fR, "v 255" matches the numeric value 255
-in source code as 0b1111_1111, 0377, 0o377, 255, 0xff, etc.
+A search in number literals finds equal \fIvalues\fR, "v 255" matches the number 255
+in source code as 0b1111_1111, 0377, 0o377, 255, and 0xff.
 Go's linear-time regular expression engine is Unicode-aware and supports
 many Perl extensions: numbers in identifiers are found with "gg i [0-9]" or "gg i [\\d]",
 comments with math symbols by "gg c \\p{Sm}", and Greek in strings via "gg s \\p{Greek}"
 each with appropriate shell escaping.
 .PP
-gg searches files names listed on the command line or in a file of filenames provided
+gg searches files named on the command line or in a file of filenames provided by
 the "-list" argument.
-If neither of these is present, gg reads file names from the standard input which is useful
-in shell pipelines such as "find . -name "*.go" | gg k fallthrough"
+If neither of these is present, gg reads filenames from the standard input, which is useful
+in shell pipelines such as "find . -name '*.go' | gg k fallthrough"
 .PP
 Files are Go source code files or directories.
 Source files include typical ".go"
@@ -116,7 +116,7 @@ gg c case .
 .RE
 .fi
 .PP
-To find number literals containing the digits 42 in ".go" files located anywhere in the current
+To find number literals containing the digits 42 (or any regexp) in ".go" files located anywhere in the current
 directory's hierarchy, use the command:
 .PP
 .nf
@@ -141,4 +141,5 @@ Michael T. Jones (https://github.com/MichaelTJones)
 .nf
 https://golang.org/pkg/regexp/syntax/
 https://en.wikipedia.org/wiki/Unicode_character_property
+Special features and options described in main.go
 .fi

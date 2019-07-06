@@ -22,6 +22,13 @@ var flagVisible = flag.Bool("visible", true, `limit grep to visible files (skip 
 var flagActLikeGrep = flag.Bool("g", false, "act like grep")
 var flagFileName = flag.Bool("h", false, `disply file name ("header") for each match`)
 var flagLineNumber = flag.Bool("n", false, "disply line number for each match")
+
+// secret developer flags
+var flagSummary = flag.Bool("summary", true, "print performance summary")
+var flagBufferWrites = flag.Bool("bufferWrites", true, "buffer output writes")
+var flagBufferSize = flag.Int("bufferSize", 64*1024, "output buffer size")
+var flagTrim = flag.Bool("trim", false, "trim matched strings")
+
 var usage = `NAME
     gg - grep Go-language source code
 
@@ -136,6 +143,7 @@ AUTHOR
 
 SEE ALSO
     https://golang.org/pkg/regexp/syntax/
+    https://github.com/google/re2/wiki/Syntax
     https://en.wikipedia.org/wiki/Unicode_character_property
 `
 
@@ -185,15 +193,50 @@ func main() {
 
 	// perform actual work
 	start := time.Now()
-	doScan()
+	s := doScan()
 	elapsed := time.Since(start).Seconds()
 	user, system, _ := getResourceUsage()
-	printf("performance")
-	printf("  %10.6f seconds elapsed\n", elapsed)
-	if elapsed > 0 {
-		printf("  %3d worker%s (parallel speedup = %.2f x)\n",
-			*flagCPUs, plural(*flagCPUs, ""), (user+system)/elapsed)
+
+	// log performance summary
+	if *flagLog != "" {
+		printf("performance")
+		printf("  grep  %d matches\n", s.matches)
+		printf("  work  %d bytes, %d tokens, %d lines, %d files\n",
+			s.bytes, s.tokens, s.lines, s.files)
+		printf("  time  %.6f sec elapsed, %.6f sec user + %.6f system\n", elapsed, user, system)
+		if elapsed > 0 {
+			printf("  rate  %.0f bytes/sec, %.0f tokens/sec, %.0f lines/sec, %.0f files/sec\n",
+				float64(s.bytes)/elapsed,
+				float64(s.tokens)/elapsed,
+				float64(s.lines)/elapsed,
+				float64(s.files)/elapsed)
+			printf("  scale %d worker%s (parallel speedup = %.2fx)\n",
+				*flagCPUs, plural(*flagCPUs, ""), (user+system)/elapsed)
+		}
 	}
+	// print performance summary
+	if *flagSummary {
+		fmt.Printf("performance")
+		fmt.Printf("  grep  %d matches\n", s.matches)
+		fmt.Printf("  work  %d bytes, %d tokens, %d lines, %d files\n",
+			s.bytes, s.tokens, s.lines, s.files)
+		fmt.Printf("  time  %.6f sec elapsed, %.6f sec user + %.6f system\n", elapsed, user, system)
+		if elapsed > 0 {
+			fmt.Printf("  rate  %.0f bytes/sec, %.0f tokens/sec, %.0f lines/sec, %.0f files/sec\n",
+				float64(s.bytes)/elapsed,
+				float64(s.tokens)/elapsed,
+				float64(s.lines)/elapsed,
+				float64(s.files)/elapsed)
+			fmt.Printf("  scale %d worker%s (parallel speedup = %.2fx)\n",
+				*flagCPUs, plural(*flagCPUs, ""), (user+system)/elapsed)
+		}
+	}
+
+	// exit with grep-compatible codes
+	if s.matches == 0 {
+		os.Exit(1)
+	}
+	os.Exit(0)
 }
 
 func getMaxCPU() int {

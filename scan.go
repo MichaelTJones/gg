@@ -53,7 +53,7 @@ var vIsInt bool
 var vInt uint64    // literal value
 var vFloat float64 // literal value
 
-func doScan() {
+func doScan() Summary {
 	s := NewScan()
 	fixedArgs := 2
 	if *flagActLikeGrep {
@@ -61,7 +61,7 @@ func doScan() {
 	}
 
 	if flag.NArg() < fixedArgs {
-		return
+		return Summary{}
 	}
 
 	// initialize regular expression matcher
@@ -69,7 +69,7 @@ func doScan() {
 	regex, err = regexp.Compile(flag.Arg(fixedArgs - 1))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return
+		return Summary{}
 	}
 
 	// gg mode
@@ -81,7 +81,7 @@ func doScan() {
 	// scan files in the file of filenames indicated by the "-list" option.
 	if *flagList != "" {
 		println("processing files listed in the -list option")
-		*flagFileName = true
+		*flagFileName = true // presume multiple files...print names
 		s.List(*flagList)
 		scanned = true
 	}
@@ -107,15 +107,23 @@ func doScan() {
 			s.File(scanner.Text())
 		}
 	}
-	s.Complete()
+	summary := s.Complete() // parallel rendevousz here...will wait
 	println("scan ends")
+	return summary
 }
 
 type Scan struct {
-	path     string
-	line     []uint32
-	match    []string
+	path  string
+	line  []uint32
+	match []string
+
+	bytes   int
+	tokens  int
+	lines   int
+	matches int
+
 	complete bool
+	total    Summary
 }
 
 func NewScan() *Scan {
@@ -412,13 +420,20 @@ type Work struct {
 	name   string
 	source []byte
 }
+type Summary struct {
+	bytes   int
+	tokens  int
+	matches int
+	lines   int
+	files   int
+}
 
-var first bool = true
+var first = true
 var workers int
 var scattered int
 var work []chan Work
 var result []chan *Scan
-var done chan bool
+var done chan Summary
 
 func worker(index int) {
 	for w := range work[index] {
@@ -439,8 +454,8 @@ func (s *Scan) Scan(name string, source []byte) {
 			result[i] = make(chan *Scan, 512)
 			go worker(i)
 		}
-		done = make(chan bool)
-		go reporter()
+		done = make(chan Summary)
+		go reporter() // wait for and gather results
 		first = false
 	}
 
@@ -463,14 +478,17 @@ func (s *Scan) scan(name string, source []byte) {
 		return
 	}
 	s.path = newName
+	s.bytes += len(source)
 
 	// handle grep mode
 	if *flagActLikeGrep || G {
 		scanner := bufio.NewScanner(bytes.NewReader(source))
 		line := uint32(1)
 		for scanner.Scan() {
+			s.lines++
 			if regex.MatchString(scanner.Text()) {
 				s.match = append(s.match, scanner.Text()+"\n")
+				s.matches++
 				if *flagLineNumber {
 					s.line = append(s.line, line)
 				}
@@ -483,12 +501,26 @@ func (s *Scan) scan(name string, source []byte) {
 	// Perform the scan by tabulating token types, subtypes, and values
 	line := -1
 	lexer := &lex.Lexer{Input: string(source), Mode: lex.ScanGo} // | lex.SkipSpace}
+
 	expectPackageName := false
+	skip := false
+	// theWholeLine := ""
 	for tok, text := lexer.Scan(); tok != lex.EOF; tok, text = lexer.Scan() {
+		s.tokens++
+
+		// if !skip {
+		// 	theWholeLine = lexer.GetLine()
+		// 	if !regex.MatchString(theWholeLine) {
+		// 		skip = true
+		// 	}
+		// }
+
 		// go mini-parser: expect package name after "package" keyword
 		if expectPackageName && tok == lex.Identifier {
 			if P && regex.MatchString(text) {
 				s.match = append(s.match, lexer.GetLine())
+				// s.match = append(s.match, theWholeLine)
+				s.matches++
 				if *flagLineNumber {
 					s.line = append(s.line, uint32(lexer.Line))
 				}
@@ -499,33 +531,44 @@ func (s *Scan) scan(name string, source []byte) {
 		}
 
 		handle := func(flag bool) {
-			if flag && lexer.Line > line {
-				if lexer.Type == lex.String && lexer.Subtype == lex.Raw {
-					// match each line of the raw string individually
-					scanner := bufio.NewScanner(strings.NewReader(text))
-					lineInString := 0
-					for scanner.Scan() {
-						if regex.MatchString(scanner.Text()) {
-							s.match = append(s.match, scanner.Text()+"\n")
-							line = lexer.Line + lineInString
-							lineInString++
-							if *flagLineNumber {
-								s.line = append(s.line, uint32(line+1))
+			// if !skip {
+			if true || !skip {
+				if flag && lexer.Line > line {
+					if lexer.Type == lex.String && lexer.Subtype == lex.Raw {
+						// match each line of the raw string individually
+						scanner := bufio.NewScanner(strings.NewReader(text))
+						lineInString := 0
+						for scanner.Scan() {
+							if regex.MatchString(scanner.Text()) {
+								s.match = append(s.match, scanner.Text()+"\n")
+								s.matches++
+								line = lexer.Line + lineInString
+								lineInString++
+								if *flagLineNumber {
+									s.line = append(s.line, uint32(line+1))
+								}
 							}
 						}
-					}
-				} else if regex.MatchString(text) {
-					// match the token but print the line that contains it
-					s.match = append(s.match, lexer.GetLine())
-					line = lexer.Line
-					if *flagLineNumber {
-						s.line = append(s.line, uint32(line+1))
+					} else if regex.MatchString(text) {
+						// match the token but print the line that contains it
+						s.match = append(s.match, lexer.GetLine())
+						// s.match = append(s.match, theWholeLine)
+						s.matches++
+						line = lexer.Line
+						if *flagLineNumber {
+							s.line = append(s.line, uint32(line+1))
+						}
 					}
 				}
 			}
 		}
 
 		switch tok {
+		case lex.Space:
+			if text == "\n" {
+				skip = false
+				s.lines++
+			}
 		case lex.Comment:
 			handle(C)
 		case lex.String:
@@ -576,10 +619,10 @@ func (s *Scan) scan(name string, source []byte) {
 }
 
 // Complete a scan
-func (s *Scan) Complete() {
+func (s *Scan) Complete() Summary {
 	if !s.complete {
-		s.Scan("", nil) // Signal end of additional files...
-		<-done          // ...and await completion.of scanning
+		s.Scan("", nil)  // Signal end of additional files...
+		s.total = <-done // ...and await completion.of scanning
 
 		for i := range result {
 			close(result[i])
@@ -587,26 +630,44 @@ func (s *Scan) Complete() {
 
 		s.complete = true // Record completion
 	}
+	return s.total
 }
 
 func reporter() {
-	// open output
-	file := os.Stdout
+	var w io.Writer
+
 	switch lower := strings.ToLower(*flagOutput); {
-	case lower == "[stdout]":
-		file = os.Stdout
+	case lower == "" || lower == "[stdout]":
+		file := os.Stdout
+		if *flagBufferWrites {
+			b := bufio.NewWriterSize(file, *flagBufferSize) // ensure buffered writes
+			defer b.Flush()
+			w = b
+		} else {
+			w = file
+		}
 	case lower == "[stderr]":
-		file = os.Stderr
+		file := os.Stderr
+		if *flagBufferWrites {
+			b := bufio.NewWriterSize(file, *flagBufferSize) // ensure buffered writes
+			defer b.Flush()
+			w = b
+		} else {
+			w = file
+		}
 	case lower != "":
 		var err error
-		file, err = os.Create(*flagOutput)
+		file, err := os.Create(*flagOutput)
 		if err != nil {
 			println(err)
 			return
 		}
 		defer file.Close()
+		w = file
 	}
-	// w := bufio.NewWriter(file) // ensure buffered writes
+
+	// summary statistics
+	total := Summary{}
 
 	// report results per file
 	gathered := 0
@@ -627,24 +688,43 @@ func reporter() {
 
 		// report this file's matching lines
 		for i, m := range s.match {
+			// first the filename, from "-h"
 			if *flagFileName {
-				file.WriteString(s.path) // the file name
-				file.WriteString(":")
-				// w.WriteString(s.path) // the file name
-				// w.WriteString(":")
+				fmt.Fprintf(w, "%s:", s.path)
 			}
+
+			// second the line number, from "-n"
 			if *flagLineNumber {
-				fmt.Fprintf(file, "%d:", s.line[i])
-				// fmt.Fprintf(w, "%d:", s.line[i])
+				fmt.Fprintf(w, "%d:", s.line[i])
 			}
-			file.WriteString(m) // the matching line
-			// w.WriteString(m) // the matching line
+
+			// finally, the match itself
+			start := 0
+			if *flagTrim {
+				for start < len(m) {
+					ch := m[start]
+					if ch == ' ' || ch == '\t' {
+						start++
+					} else {
+						break
+					}
+				}
+				if start < len(m) {
+					m = m[start:]
+				}
+			}
+			fmt.Fprintf(w, "%s", m)
 		}
+
+		total.bytes += s.bytes
+		total.tokens += s.tokens
+		total.matches += s.matches
+		total.lines += s.lines
+		total.files++
 	}
-	// w.Flush() // flush when you're done
 
 	// signal completion to main program
-	done <- true // all scanning is complete
+	done <- total // scanning complete, here are totals
 }
 
 func println(v ...interface{}) {
