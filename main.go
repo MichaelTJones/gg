@@ -177,7 +177,7 @@ func main() {
 	// bonus feature
 	// If you make a symbolic link to the executable or otherwise rename it from "gg" then it
 	// will automatically run in "be like grep" mode.
-	if os.Args[0] != "gg" {
+	if !strings.HasSuffix(os.Args[0], "gg") {
 		*flagActLikeGrep = true // if user's made a symlink or renamed, become grep
 	}
 
