@@ -66,9 +66,8 @@ func doScan() Summary {
 
 	// initialize regular expression matcher
 	var err error
-	regex, err = regexp.Compile(flag.Arg(fixedArgs - 1))
+	regex, err = getRegexp(flag.Arg(fixedArgs - 1))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return Summary{}
 	}
 
@@ -901,6 +900,14 @@ func setupModeGG(args []string) searchMode {
 		}
 	}
 	return res
+}
+
+func getRegexp(input string) (*regexp.Regexp, error) {
+	regexp, err := regexp.Compile(input)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	}
+	return regexp, err
 }
 
 func getResourceUsage() (user, system float64, size uint64) {

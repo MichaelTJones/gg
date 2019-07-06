@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"regexp"
 	"testing"
 )
 
@@ -815,6 +816,64 @@ func Test_setupModeGG(t *testing.T) {
 
 			if !reflect.DeepEqual(got1, tt.want1) {
 				t.Errorf("setupModeGG got1 = %v, want1: %v", got1, tt.want1)
+			}
+		})
+	}
+}
+
+func Test_getRegexp(t *testing.T) {
+	re, _ := regexp.Compile("[0-9]test?")
+	reErr, _ := regexp.Compile("*")
+	type args struct {
+		input string
+	}
+	tests := []struct {
+		name string
+		args func(t *testing.T) args
+
+		want1      *regexp.Regexp
+		wantErr    bool
+		inspectErr func(err error, t *testing.T)
+	}{
+		{
+			name: "valid regexp should work",
+			args: func(*testing.T) args {
+				return args{input: "[0-9]test?"}
+			},
+			want1:   re,
+			wantErr: false,
+			inspectErr: func(error, *testing.T) {
+			},
+		},
+
+		{
+			name: "invalid regexp should not work",
+			args: func(*testing.T) args {
+				return args{input: "*"}
+			},
+			want1:   reErr,
+			wantErr: true,
+			inspectErr: func(error, *testing.T) {
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tArgs := tt.args(t)
+
+			got1, err := getRegexp(tArgs.input)
+
+			if !reflect.DeepEqual(got1, tt.want1) {
+				t.Errorf("getRegexp got1 = %v, want1: %v", got1, tt.want1)
+			}
+
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("getRegexp error = %v, wantErr: %t", err, tt.wantErr)
+			}
+
+			if tt.inspectErr != nil {
+				tt.inspectErr(err, t)
 			}
 		})
 	}
