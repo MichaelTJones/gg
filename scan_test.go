@@ -739,3 +739,83 @@ func Test_parseFirstArg(t *testing.T) {
 		})
 	}
 }
+
+func Test_setupModeGG(t *testing.T) {
+	type args struct {
+		args []string
+	}
+	tests := []struct {
+		name string
+		args func(t *testing.T) args
+
+		want1 searchMode
+	}{
+		{
+			name: "empty args should not set anything",
+			args: func(*testing.T) args {
+				return args{args: []string{}}
+			},
+			want1: searchMode{},
+		},
+
+		{
+			name: "empty args should not set anything",
+			args: func(*testing.T) args {
+				return args{args: []string{""}}
+			},
+			want1: searchMode{},
+		},
+
+		{
+			name: "value matcher should work for ints",
+			args: func(*testing.T) args {
+				return args{args: []string{"v", "11"}}
+			},
+			want1: searchMode{V: true, vInt: 11, vIsInt: true},
+		},
+
+		{
+			name: "value matcher should work for negative ints",
+			args: func(*testing.T) args {
+				return args{args: []string{"v", "-42"}}
+			},
+			want1: searchMode{V: true, vInt: 42, vIsInt: true},
+		},
+
+		{
+			name: "value matcher should work for floats",
+			args: func(*testing.T) args {
+				return args{args: []string{"v", "8.93"}}
+			},
+			want1: searchMode{V: true, vFloat: 8.93, vIsInt: false},
+		},
+
+		{
+			name: "value matcher should work for negative floats",
+			args: func(*testing.T) args {
+				return args{args: []string{"v", "-8.93"}}
+			},
+			want1: searchMode{V: true, vFloat: 8.93, vIsInt: false},
+		},
+
+		{
+			name: "value matcher should not work for random strings",
+			args: func(*testing.T) args {
+				return args{args: []string{"v", "asdf"}}
+			},
+			want1: searchMode{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tArgs := tt.args(t)
+
+			got1 := setupModeGG(tArgs.args)
+
+			if !reflect.DeepEqual(got1, tt.want1) {
+				t.Errorf("setupModeGG got1 = %v, want1: %v", got1, tt.want1)
+			}
+		})
+	}
+}
