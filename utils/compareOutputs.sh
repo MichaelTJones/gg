@@ -3,7 +3,7 @@
 go build -o gg main.go scan.go
 
 options="a aC aD aI aK aN aO aP aR aS aV"
-queries="grep for test 2 true"
+queries="grep for test 2 true -42 5.25 -5.25"
 
 err=false
 for o in $options; do
