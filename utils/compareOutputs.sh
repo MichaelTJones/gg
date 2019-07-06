@@ -1,45 +1,32 @@
-#!/bin/zsh
+#!/bin/sh
 
 rm -rf ./gg
 go build -o gg main.go scan.go
-./gg aS grep . > ./new
-gg aS grep . > ./old
 
-CHANGES=$(diff ./new ./old | wc -l)
+options="a aC aD aI aK aN aO aP aR aS aV"
+queries="grep for test 2 true"
 
-if [ $CHANGES -eq 0 ]; then
-    echo "test1: everything is still working"
-    rm -rf ./new ./old
-else
-    echo "test1: outputs don't match"
-    diff ./new ./old
-    return
-fi
+err=false
+for o in $options; do
+    for q in $queries; do
+        ./gg $o $q . > ./new
+        gg $o $q . > ./old
+        CHANGES=$(diff ./new ./old | wc -l)
 
-./gg a grep . > ./new
-gg a grep . > ./old
+        if [ $CHANGES -eq 0 ]; then
+            rm -rf ./new ./old
+        else
+            echo "Outputs don't match for 'gg $o $q .'"
+            diff ./new ./old
+            err=true
+            break
+        fi
+    done
+    if [ $err = true ]; then
+        break
+    fi
+done
 
-CHANGES=$(diff ./new ./old | wc -l)
-
-if [ $CHANGES -eq 0 ]; then
-    echo "test2: everything is still working"
-    rm -rf ./new ./old
-else
-    echo "test2: outputs don't match"
-    diff ./new ./old
-    return
-fi
-
-./gg aV grep . > ./new
-gg aV grep . > ./old
-
-CHANGES=$(diff ./new ./old | wc -l)
-
-if [ $CHANGES -eq 0 ]; then
-    echo "test3: everything is still working"
-    rm -rf ./new ./old
-else
-    echo "test3: outputs don't match"
-    diff ./new ./old
-    return
+if [ $err = false ]; then
+    echo "Nice, everything is still working!"
 fi
