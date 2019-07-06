@@ -73,7 +73,22 @@ func doScan() Summary {
 	}
 
 	// gg mode
-	setupModeGG()
+	mode := setupModeGG(flag.Args())
+	C = mode.C
+	D = mode.D
+	G = mode.G
+	I = mode.I
+	K = mode.K
+	N = mode.N
+	O = mode.O
+	P = mode.P
+	R = mode.R
+	S = mode.S
+	T = mode.T
+	V = mode.V
+	vIsInt = mode.vIsInt
+	vInt = mode.vInt
+	vFloat = mode.vFloat
 
 	println("scan begins")
 	scanned := false
@@ -770,7 +785,10 @@ type searchMode struct {
 	// t: search Types (bool, int, float64, map, ...)
 	T bool
 	// v: search numeric Values (255 as 0b1111_1111, 0377, 255, 0xff)
-	V bool
+	V      bool
+	vIsInt bool
+	vInt   uint64
+	vFloat float64
 }
 
 func parseFirstArg(input string) searchMode {
@@ -848,46 +866,41 @@ func parseFirstArg(input string) searchMode {
 	return result
 }
 
-func setupModeGG() {
+func setupModeGG(args []string) searchMode {
+	res := searchMode{}
 	if !*flagActLikeGrep {
+		if len(args) < 2 {
+			// not enough args received, complete args with empty strings
+			for i := len(args); i < 2; i++ {
+				args = append(args, "")
+			}
+		}
 		// handle "all" flag first before subsequent upper-case anti-flags
-		mode := parseFirstArg(flag.Arg(0))
-		C = mode.C
-		D = mode.D
-		G = mode.G
-		I = mode.I
-		K = mode.K
-		N = mode.N
-		O = mode.O
-		P = mode.P
-		R = mode.R
-		S = mode.S
-		T = mode.T
-		V = mode.V
+		res = parseFirstArg(args[0])
 
 		// initialize numeric value matcher
-		if V && len(flag.Arg(1)) > 0 {
-			n := flag.Arg(1)
+		if res.V && len(args[1]) > 0 {
+			n := args[1]
 			if n[0] == '-' {
 				sign = -1
 				n = n[1:]
 			}
 			var err error
-			vInt, err = strconv.ParseUint(n, 0, 64)
-			vIsInt = true
+			res.vInt, err = strconv.ParseUint(n, 0, 64)
+			res.vIsInt = true
 			if err != nil {
+				res.vIsInt = false
 				// we did not consume all the input...maybe it is a float.
-				vFloat, err = strconv.ParseFloat(n, 64)
-				_ = vFloat + -5.25
+				res.vFloat, err = strconv.ParseFloat(n, 64)
+				_ = res.vFloat + -5.25
 				if err != nil {
-					V = false
+					res.V = false
 					fmt.Fprintf(os.Stderr, "error: %v\n", err)
-				} else {
-					vIsInt = false
 				}
 			}
 		}
 	}
+	return res
 }
 
 func getResourceUsage() (user, system float64, size uint64) {
