@@ -26,10 +26,16 @@ for o in $options; do
                 break
             fi
         done
+        if [ $err = true ]; then
+            break
+        fi
     done
+    if [ $err = true ]; then
+        break
+    fi
 done
 
 if [ $err = false ]; then
     echo "Nice, everything is still working!"
 fi
-rm -rf ./gg
+rm -rf ./gg ./a ./b
