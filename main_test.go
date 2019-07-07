@@ -28,13 +28,13 @@ func Test_getMaxCPU(t *testing.T) {
 		{
 			name:    "should use at least 1 CPU",
 			rcvdVal: -1 * (actualProcs + 2),
-			want1:   1,
+			want1:   2,
 		},
 
 		{
-			name:    "should use only 1 CPU",
+			name:    "should use 2 workers even if only 1 CPU requested",
 			rcvdVal: 1,
-			want1:   1,
+			want1:   2,
 		},
 	}
 
