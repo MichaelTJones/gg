@@ -501,7 +501,7 @@ func (s *Scan) scan(name string, source []byte) {
 
 	// Perform the scan by tabulating token types, subtypes, and values
 	line := -1
-	lexer := &lex.Lexer{Input: string(source), Mode: lex.ScanGo} // | lex.SkipSpace}
+	lexer := &lex.Lexer{Input: source, Mode: lex.ScanGo} // | lex.SkipSpace}
 
 	expectPackageName := false
 	skip := false
