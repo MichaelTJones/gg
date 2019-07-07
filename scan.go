@@ -50,7 +50,7 @@ var vIsInt bool
 var vInt uint64    // literal value
 var vFloat float64 // literal value
 
-func doScan() Summary {
+func doScan() (Summary, error) {
 	s := NewScan()
 	fixedArgs := 2
 	if *flagActLikeGrep {
@@ -58,14 +58,14 @@ func doScan() Summary {
 	}
 
 	if flag.NArg() < fixedArgs {
-		return Summary{}
+		return Summary{}, fmt.Errorf("not enough arguments: missing keywords and pattern")
 	}
 
 	// initialize regular expression matcher
 	var err error
 	regex, err = getRegexp(flag.Arg(fixedArgs - 1))
 	if err != nil {
-		return Summary{}
+		return Summary{}, err
 	}
 
 	// gg mode
@@ -120,7 +120,7 @@ func doScan() Summary {
 	}
 	summary := s.Complete() // parallel rendevousz here...will wait
 	println("scan ends")
-	return summary
+	return summary, nil
 }
 
 type Scan struct {
@@ -310,7 +310,7 @@ func (s *Scan) File(name string) {
 			}
 
 			for _, base := range bases {
-				if skip[base.Name()] == true {
+				if skip[base.Name()] {
 					printf("  skipping .gitignored file %q", base.Name())
 					continue
 				}
