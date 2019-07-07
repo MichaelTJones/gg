@@ -175,9 +175,9 @@ func main() {
 
 	*flagCPUs = getMaxCPU()
 
-	// bonus feature
+	// bonus feature:
 	// If you make a symbolic link to the executable or otherwise rename it from "gg" then it
-	// will automatically run in "be like grep" mode.
+	// will automatically run in "be like grep" mode without needing the "g" or any other flag.
 	if !strings.HasSuffix(os.Args[0], "gg") {
 		*flagActLikeGrep = true // if user's made a symlink or renamed, become grep
 	}
@@ -194,7 +194,10 @@ func main() {
 
 	// perform actual work
 	start := time.Now()
-	s := doScan()
+	s, err := doScan()
+	if err != nil {
+		printf("error: %v", err)
+	}
 	elapsed := time.Since(start).Seconds()
 	user, system, _ := getResourceUsage()
 
@@ -209,23 +212,31 @@ func main() {
 	}
 
 	// exit with grep-compatible codes
-	if s.matches == 0 {
-		os.Exit(1) // failure: no match
+	switch {
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "error: %v", err)
+		os.Exit(2) // program failure: (like grep: return 2 instead of 1)
+	case s.matches <= 0:
+		os.Exit(1) // search unsuccessful: no match
+	default: // err ==nil && s.matches >= 1
+		os.Exit(0) // search successful: 1 or more matches
 	}
-	os.Exit(0) // success: 1 or more matches
 }
 
 func getMaxCPU() int {
-	if *flagCPUs != 1 {
-		if *flagCPUs == 0 { // claim CPUs
-			return runtime.NumCPU()
-		} else if *flagCPUs < 0 { // spare CPUs
-			res := *flagCPUs + runtime.NumCPU() // "-cpu -2" ==> "all but 2 CPUs"
-			if res < 1 {
-				return 1
-			}
-			return res
-		}
+	// evaluate caller's preference
+	res := 1
+	if *flagCPUs == 0 {
+		// claim all CPUs (well...generate N many workers)
+		res = runtime.NumCPU()
+	} else if *flagCPUs < 0 {
+		// spare N CPUs (well...generate all-N many workers)
+		res = *flagCPUs + runtime.NumCPU()
 	}
-	return 1
+
+	// allow at least 2 scan worker goroutines
+	if res < 2 {
+		res = 2
+	}
+	return res
 }
