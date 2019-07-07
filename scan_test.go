@@ -54,7 +54,7 @@ func Test_visibleWithFlagSet(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tArgs := tt.args(t)
 
-			got1 := visible(tArgs.name)
+			got1 := isVisible(tArgs.name)
 
 			if !reflect.DeepEqual(got1, tt.want1) {
 				t.Errorf("visible got1 = %v, want1: %v", got1, tt.want1)
@@ -112,7 +112,7 @@ func Test_visibleWithoutFlagSet(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tArgs := tt.args(t)
 
-			got1 := visible(tArgs.name)
+			got1 := isVisible(tArgs.name)
 
 			if !reflect.DeepEqual(got1, tt.want1) {
 				t.Errorf("visible got1 = %v, want1: %v", got1, tt.want1)
