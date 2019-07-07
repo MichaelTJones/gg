@@ -172,15 +172,14 @@ func main() {
 	}
 
 	// control concurrency for testing (no disadvantage for maximal concurrrency)
-	if *flagCPUs != 1 {
-		if *flagCPUs == 0 { // claim CPUs
-			*flagCPUs = runtime.NumCPU()
-		} else if *flagCPUs < 0 { // spare CPUs
-			*flagCPUs += runtime.NumCPU() // "-cpu -2" ==> "all but 2 CPUs"
-			if *flagCPUs < 1 {
-				*flagCPUs = 1
-			}
-		}
+	//  note: not setting runtime, just limiting self-use
+	if *flagCPUs == 0 { // claim CPUs
+		*flagCPUs = runtime.NumCPU()
+	} else if *flagCPUs < 0 { // spare CPUs
+		*flagCPUs += runtime.NumCPU() // "-cpu -2" ==> "all but 2 CPUs"
+	}
+	if *flagCPUs < 2 {
+		*flagCPUs = 2
 	}
 
 	// bonus feature
@@ -193,7 +192,7 @@ func main() {
 	if flag.NArg() < 2 {
 		fmt.Fprintf(os.Stderr, "usage: gg [flags] acdiknoprstvg regexp [file ...]\n")
 		fmt.Fprintf(os.Stderr, "    try gg -help for more\n")
-		os.Exit(1)
+		os.Exit(2) // failure: (like grep: return 2 instead of 1)
 	}
 
 	if *flagRecursive {
@@ -206,44 +205,19 @@ func main() {
 	elapsed := time.Since(start).Seconds()
 	user, system, _ := getResourceUsage()
 
-	// log performance summary
-	if *flagLog != "" {
-		printf("performance")
-		printf("  grep  %d matches\n", s.matches)
-		printf("  work  %d bytes, %d tokens, %d lines, %d files\n",
-			s.bytes, s.tokens, s.lines, s.files)
-		printf("  time  %.6f sec elapsed, %.6f sec user + %.6f system\n", elapsed, user, system)
-		if elapsed > 0 {
-			printf("  rate  %.0f bytes/sec, %.0f tokens/sec, %.0f lines/sec, %.0f files/sec\n",
-				float64(s.bytes)/elapsed,
-				float64(s.tokens)/elapsed,
-				float64(s.lines)/elapsed,
-				float64(s.files)/elapsed)
-			printf("  scale %d worker%s (parallel speedup = %.2fx)\n",
-				*flagCPUs, plural(*flagCPUs, ""), (user+system)/elapsed)
-		}
-	}
 	// print performance summary
+	if *flagLog != "" {
+		s.print(elapsed, user, system, printf) // print to log
+	}
 	if *flagSummary {
-		fmt.Printf("performance")
-		fmt.Printf("  grep  %d matches\n", s.matches)
-		fmt.Printf("  work  %d bytes, %d tokens, %d lines, %d files\n",
-			s.bytes, s.tokens, s.lines, s.files)
-		fmt.Printf("  time  %.6f sec elapsed, %.6f sec user + %.6f system\n", elapsed, user, system)
-		if elapsed > 0 {
-			fmt.Printf("  rate  %.0f bytes/sec, %.0f tokens/sec, %.0f lines/sec, %.0f files/sec\n",
-				float64(s.bytes)/elapsed,
-				float64(s.tokens)/elapsed,
-				float64(s.lines)/elapsed,
-				float64(s.files)/elapsed)
-			fmt.Printf("  scale %d worker%s (parallel speedup = %.2fx)\n",
-				*flagCPUs, plural(*flagCPUs, ""), (user+system)/elapsed)
-		}
+		s.print(elapsed, user, system, func(f string, v ...interface{}) {
+			_, _ = fmt.Printf(f, v...) // print to stdout
+		})
 	}
 
 	// exit with grep-compatible codes
 	if s.matches == 0 {
-		os.Exit(1)
+		os.Exit(1) // failure: no match
 	}
-	os.Exit(0)
+	os.Exit(0) // success: 1 or more matches
 }
