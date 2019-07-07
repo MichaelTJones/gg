@@ -572,8 +572,6 @@ func (s *Scan) scan(name string, source []byte) {
 			}
 		case lex.Comment:
 			handle(C)
-		case lex.String:
-			handle(S)
 		case lex.Operator:
 			handle(O)
 		case lex.Rune:
@@ -615,6 +613,8 @@ func (s *Scan) scan(name string, source []byte) {
 			handle(D)
 		case lex.Character:
 			// seems maningless match unexpected illegal characters, maybe "."?
+		case lex.String: // do this one last...so that raw string matches won't prevent others
+			handle(S)
 		}
 	}
 }
