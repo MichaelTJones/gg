@@ -1,8 +1,6 @@
 package main
 
 import (
-	"archive/tar"
-	"archive/zip"
 	"bufio"
 	"bytes"
 	"compress/bzip2"
@@ -20,7 +18,6 @@ import (
 	"syscall"
 
 	"github.com/MichaelTJones/lex"
-	"github.com/cavaliercoder/go-cpio"
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -274,113 +271,7 @@ func (s *Scan) File(name string) {
 
 	// process plain files
 	if info.Mode().IsRegular() {
-		var err error
-		var data []byte
-		if isArchive(name) && isCompressed(name) {
-			name, data, err = decompress(name, nil)
-			if err != nil {
-				println(err)
-				return
-			}
-		}
-
-		var archive io.Reader
-		switch {
-		case len(data) == 0:
-			f, err := os.Open(name)
-			if err != nil {
-				println(err)
-				return
-			}
-			defer f.Close()
-			archive = f
-		default:
-			archive = bytes.NewReader(data)
-		}
-
-		ext := strings.ToLower(filepath.Ext(name))
-		switch {
-		case ext == ".cpio":
-			println("processing cpio archive", name)
-			r := cpio.NewReader(archive)
-			for {
-				hdr, err := r.Next()
-				if err == io.EOF {
-					break // End of archive
-				}
-				if err != nil {
-					println(err)
-					return
-				}
-				memberName := name + "::" + hdr.Name // "archive.cpio::file.go"
-				if !isGo(hdr.Name) {
-					println("skipping file with unrecognized extension:", memberName)
-					continue
-				}
-				bytes, err := ioutil.ReadAll(r)
-				if err != nil {
-					println(err)
-					return
-				}
-				s.Scan(memberName, bytes)
-			}
-		case ext == ".tar":
-			println("processing tar archive", name)
-			tr := tar.NewReader(archive)
-			for {
-				hdr, err := tr.Next()
-				if err == io.EOF {
-					break // End of archive
-				}
-				if err != nil {
-					println(err)
-					return
-				}
-				memberName := name + "::" + hdr.Name // "archive.tar::file.go"
-				if !isGo(hdr.Name) {
-					println("skipping file with unrecognized extension:", memberName)
-					continue
-				}
-				bytes, err := ioutil.ReadAll(tr)
-				if err != nil {
-					println(err)
-					return
-				}
-				s.Scan(memberName, bytes)
-			}
-		case ext == ".zip":
-			println("processing zip archive:", name)
-			r, err := zip.OpenReader(name)
-			if err != nil {
-				println(err)
-				return
-			}
-			defer r.Close()
-
-			for _, f := range r.File {
-				fullName := name + "::" + f.Name // "archive.zip::file.go"
-				if !isGo(f.Name) {
-					println("skipping file with unrecognized extension:", fullName)
-					continue
-				}
-				rc, err := f.Open()
-				if err != nil {
-					println(err)
-					return
-				}
-				bytes, err := ioutil.ReadAll(rc)
-				rc.Close()
-				if err != nil {
-					println(err)
-					return
-				}
-				s.Scan(fullName, bytes)
-			}
-		case isGo(name):
-			s.Scan(name, nil)
-		default:
-			println("skipping file with unrecognized extension:", name)
-		}
+		processRegularFile(name, s)
 	} else if info.Mode().IsDir() { // process directories
 		switch *flagRecursive {
 		case false:
@@ -908,6 +799,89 @@ func getRegexp(input string) (*regexp.Regexp, error) {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 	}
 	return regexp, err
+}
+
+// Scanner is an interace created to allow us to create some tests
+type Scanner interface {
+	Scan(name string, source []byte)
+}
+
+type ReadNexter interface {
+	Read(p []byte) (n int, err error)
+	Next() (string, error)
+}
+
+func processRegularFile(name string, s Scanner) {
+	var err error
+	var data []byte
+	if isArchive(name) && isCompressed(name) {
+		name, data, err = decompress(name, nil)
+		if err != nil {
+			println(err)
+			return
+		}
+	}
+
+	var archive io.Reader
+	switch {
+	case len(data) == 0:
+		f, err := os.Open(name)
+		if err != nil {
+			println(err)
+			return
+		}
+		defer f.Close()
+		archive = f
+	default:
+		archive = bytes.NewReader(data)
+	}
+
+	ext := strings.ToLower(filepath.Ext(name))
+	switch {
+	case ext == ".cpio":
+		println("processing cpio archive", name)
+		r := newMultiReader(archive, ext, "")
+		scanFile(name, r, s)
+	case ext == ".tar":
+		println("processing tar archive", name)
+		r := newMultiReader(archive, ext, "")
+		scanFile(name, r, s)
+	case ext == ".zip":
+		println("processing zip archive:", name)
+		mr := newMultiReader(nil, ext, name)
+		scanFile(name, mr, s)
+	case isGo(name):
+		s.Scan(name, nil)
+	default:
+		println("skipping file with unrecognized extension:", name)
+	}
+}
+
+func scanFile(fileName string, r ReadNexter, s Scanner) {
+	for {
+		name, err := r.Next()
+		if err == io.EOF {
+			break // End of archive
+		}
+		if err != nil {
+			println(err)
+			return
+		}
+
+		memberName := fileName + "::" + name // "archive.cpio::file.go"
+		if !isGo(name) {
+			println("skipping file with unrecognized extension:", memberName)
+			continue
+		}
+		var buf bytes.Buffer
+		buf.ReadFrom(r)
+		bytes := buf.Bytes()
+		if err != nil {
+			println(err)
+			return
+		}
+		s.Scan(memberName, bytes)
+	}
 }
 
 func getResourceUsage() (user, system float64, size uint64) {
