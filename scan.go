@@ -141,7 +141,7 @@ func NewScan() *Scan {
 	return &Scan{}
 }
 
-func visible(name string) bool {
+func isVisible(name string) bool {
 	if *flagVisible {
 		for _, s := range strings.Split(name, string(os.PathSeparator)) {
 			if s != "" && s != "." && s != ".." && s[0] == '.' {
@@ -190,13 +190,17 @@ func decompress(oldName string, oldData []byte) (newName string, newData []byte,
 	}
 
 	// Select decompression algorithm based on file extension
+	decompressed := false
 	switch {
 	case ext == ".bz2":
 		decoder, err = bzip2.NewReader(encoded), nil
+		decompressed = true
 	case ext == ".gz":
 		decoder, err = gzip.NewReader(encoded)
+		decompressed = true
 	case ext == ".zst":
 		decoder, err = zstd.NewReader(encoded)
+		decompressed = true
 	default:
 		decoder, err = encoded, nil // "just reading" is minimal compression
 	}
@@ -210,7 +214,7 @@ func decompress(oldName string, oldData []byte) (newName string, newData []byte,
 		println(err) // error using the decoder
 		return oldName, nil, err
 	}
-	if ext != ".go" {
+	if decompressed {
 		// Decompress the name ("sample.go.zst" → "sample.go")
 		newName = strings.TrimSuffix(oldName, ext)
 		printf("  %8d → %8d bytes (%6.3f×)  decompress and scan %s",
@@ -259,7 +263,7 @@ func (s *Scan) List(name string) {
 }
 
 func (s *Scan) File(name string) {
-	if !visible(name) {
+	if !isVisible(name) {
 		return
 	}
 
@@ -283,12 +287,37 @@ func (s *Scan) File(name string) {
 				println(err)
 				return
 			}
+
+			// user request: honor .gitignore blacklist
+			skip := make(map[string]bool)
+			foundGitIgnore := false
 			for _, base := range bases {
+				if base.Name() == ".gitignore" {
+					foundGitIgnore = true
+					break
+				}
+			}
+			if foundGitIgnore {
+				skip[".gitignore"] = true
+				gi, err := os.Open(".gitignore")
+				if err == nil {
+					scanner := bufio.NewScanner(gi)
+					for scanner.Scan() {
+						skip[scanner.Text()] = true
+					}
+					gi.Close()
+				}
+			}
+
+			for _, base := range bases {
+				if skip[base.Name()] == true {
+					printf("  skipping .gitignored file %q", base.Name())
+					continue
+				}
 				fullName := filepath.Join(name, base.Name())
-				if visible(fullName) && isGo(fullName) {
+				if isVisible(fullName) && isGo(fullName) {
 					s.Scan(fullName, nil)
 				}
-
 			}
 		case true:
 			// process files in this directory hierarchy
@@ -300,13 +329,39 @@ func (s *Scan) File(name string) {
 					return err
 				}
 				name := info.Name()
+
+				// user request: honor .gitignore blacklist
+				var skip map[string]bool
+
+				// foundGitIgnore := false
+				// for _, base := range bases {
+				// 	if base.Name() == ".gitignore" {
+				// 		foundGitIgnore = true
+				// 		break
+				// 	}
+				// }
+				// if foundGitIgnore {
+
+				gi, err := os.Open(".gitignore")
+				if err == nil {
+					skip = make(map[string]bool)
+					skip[".gitignore"] = true
+					scanner := bufio.NewScanner(gi)
+					for scanner.Scan() {
+						skip[scanner.Text()] = true
+					}
+					gi.Close()
+				}
+
 				if info.IsDir() {
-					if !visible(name) {
+					if !isVisible(name) {
 						println("skipping hidden directory", name)
 						return filepath.SkipDir
 					}
 				} else {
-					if visible(path) && isGo(path) {
+					if skip != nil && skip[name] {
+						printf("  skipping .gitignored file %q", name)
+					} else if isVisible(path) && isGo(path) {
 						s.Scan(path, nil)
 					}
 				}
@@ -331,6 +386,23 @@ type Summary struct {
 	matches int
 	lines   int
 	files   int
+}
+
+func (s *Summary) print(elapsed, user, system float64, printer func(string, ...interface{})) {
+	printer("performance")
+	printer("  grep  %d matches\n", s.matches)
+	printer("  work  %d bytes, %d tokens, %d lines, %d files\n",
+		s.bytes, s.tokens, s.lines, s.files)
+	printer("  time  %.6f sec elapsed, %.6f sec user + %.6f system\n", elapsed, user, system)
+	if elapsed > 0 {
+		printer("  rate  %.0f bytes/sec, %.0f tokens/sec, %.0f lines/sec, %.0f files/sec\n",
+			float64(s.bytes)/elapsed,
+			float64(s.tokens)/elapsed,
+			float64(s.lines)/elapsed,
+			float64(s.files)/elapsed)
+		printer("  scale %d worker%s (parallel speedup = %.2fx)\n",
+			*flagCPUs, plural(*flagCPUs, ""), (user+system)/elapsed)
+	}
 }
 
 var first = true

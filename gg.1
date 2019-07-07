@@ -1,22 +1,25 @@
+\# gg manpage
 .do xflag 3
 .minss 9
 .letadj 95 98 18 105 102
-\# .hypp 100
 .padj
-\# .fp 0 AG Times.ttf ttf
-\#t.f AG
-\# gg manpage
+.ft R
+.fp 1 R MinionPro-Regular otf
+.fp 2 C MetaOT-Book otf
+.fzoom 2 0.875
 \# nroff -man gg.1
 \# groff -t -e -mandoc -Tps gg.1 > gg.ps
 \# troff -t -mandoc gg.1 | dpost > gg.ps
+\# heirloom troff
 \# tbl -g gg.1 | troff -t -mandoc | dpost > gg.ps
+\# tbl -g gg.1 | troff -t -mandoc | dpost | ps2pdf -dCompatibilityLevel=1.3 - - > gg.pdf
 .TH GG 1
 .SH NAME
 gg \- grep Go-language source code
 .SH SYNOPSIS
 gg [\fIoptions\fR] \fIacdiknoprstvg\fR \fIregexp\fR [\fIfile ...\fR]
 .SH DESCRIPTION
-gg is classic grep (g/RE/p) with flag-directed Go token focus to search in
+gg is classic grep (g/RE/p) with Go token flags to limit the search to
 package names, numbers, identifiers, comments, keywords, and more.
 The token flags are "acdiknoprstvg" in any order or combination:
 .PP
@@ -29,7 +32,7 @@ d	search in Defined non-types (iota, nil, new, true, ...)
 i	search in Identifiers ([alphabetic][alphabetic | numeric]*)
 k	search in Keywords (if, for, func, go, ...)
 n	search in Numbers (regex "255" matches 255, 0.255, 1e255)
-o	search in Operators (, \^ + \^ - \^ * \^ / \^ [ \^ ] \^{ \^ } \^ (\^ ) \^ >>\^)
+o	search in Operators (\|,\|+\|-\|*\|/\|[\|]\|{\|}\|(\|)\|>>\|)
 p	search in Package names
 r	search in Rune literals ('a', '\\U00101234')
 s	search in Strings (quoted or raw)
@@ -46,21 +49,28 @@ The search is restricted, seeking matches only in chosen token classes.
 A search in number literals finds equal \fIvalues\fR, "v 255" matches the number 255
 in source code as 0b1111_1111, 0377, 0o377, 255, and 0xff.
 Go's linear-time regular expression engine is Unicode-aware and supports
-many Perl extensions: numbers in identifiers are found with "gg i [0-9]" or "gg i [\\d]",
-comments with math symbols by "gg c \\p{Sm}", and Greek in strings via "gg s \\p{Greek}"
+many Perl extensions: numbers in identifiers are found with
+"\f2gg i [0-9]\f1"
+or
+"\f2gg i [\\d]\f1",
+comments with math symbols by
+"\f2gg c \\p{Sm}\f1",
+and Greek in strings via
+"\f2gg s \\p{Greek}\f1"
 each with appropriate shell escaping.
 .PP
 gg searches files named on the command line or in a file of filenames provided by
 the "-list" argument.
 If neither of these is present, gg reads filenames from the standard input, which is useful
-in shell pipelines such as "find . -name '*.go' | gg k fallthrough"
+in shell pipelines such as
+"\f2find . -name '*.go' | gg k fallthrough\f1"
 .PP
 Files are Go source code files or directories.
 Source files include typical ".go"
 files; compressed ".go" files named ".go.bz2", ".go.gz", or ".go.zst" for Bzip2, Gzip,
 and ZStandard compression formats; archives of any such files in the formats "a.cpio",
 "a.tar", or "a.zip"; or, finally, compressed archives as in "a.cpio.bz2" and "a.tar.gz".
-If a named file is a directory then all Go source files in that directory are scanned
+If a named file is a directory then Go source files in that directory are scanned
 without visiting subdirectories.
 With the "-r" flag enabled, named directories are processed recursively, scanning
 each Go source file or archive in that directory's hierarchy.
@@ -105,14 +115,16 @@ Default is true.
 .BR \fIacdiknoprstvCDIKNOPRSTVg\fR
 The Go token class flags have an upper case negative form to disable the indicated class.
 Used with "a" for "all", "aCS" means "search All tokens except Comments and Strings."
-Flag "g" means search as if the grep command, ignore Go lexical analysis and match lines.
+Flag "g" means bypass Go lexical analysis and search files as the
+.BR grep (1)
+command, matching whole lines.
 .SH EXAMPLES
 To search for comments containing "case" (ignoring switch statements) in every
 ".go" file in the current working directory, use the command:
 .PP
 .nf
 .RS
-gg c case .
+\f2gg c case .\f1
 .RE
 .fi
 .PP
@@ -121,18 +133,18 @@ directory's hierarchy, use the command:
 .PP
 .nf
 .RS
-gg -r n 42 .
+\f2gg -r n 42 .\f1
 .RE
 .fi
 .PP
-Find numbers with values of 255 (0b1111_1111, 0377,
-0o377, 255, 0xff) in ".go" files in the gzipped
+Find numbers with values equal to 255 in any Go form (0b1111_1111, 0377,
+0o377, 255, 0x00ff) in ".go" files in the gzipped
 .BR tar (1)
 archive omega with the command:
 .PP
 .nf
 .RS
-gg v 255 omega.tar.gz
+\f2gg v 255 omega.tar.gz\f1
 .RE
 .fi
 .SH AUTHOR
@@ -141,5 +153,5 @@ Michael T. Jones (https://github.com/MichaelTJones)
 .nf
 https://golang.org/pkg/regexp/syntax/
 https://en.wikipedia.org/wiki/Unicode_character_property
-Special features and options described in main.go
+Further advanced features and options are described in main.go
 .fi
