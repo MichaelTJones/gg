@@ -714,7 +714,7 @@ func reporter() {
 			fmt.Fprintf(w, "%s\n", m)
 		}
 		if b != nil {
-			b.Flush()
+			b.Flush() // bug fix: defer flush not acceptable
 		}
 
 		total.bytes += s.bytes
