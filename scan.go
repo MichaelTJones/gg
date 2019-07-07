@@ -550,6 +550,21 @@ func (s *Scan) scan(name string, source []byte) {
 								}
 							}
 						}
+					} else if lexer.Type == lex.Comment && lexer.Subtype == lex.Block && strings.Count(text, "\n") > 0 {
+						// match each line of the block comment individually
+						scanner := bufio.NewScanner(strings.NewReader(text))
+						lineInString := 0
+						for scanner.Scan() {
+							if regex.MatchString(scanner.Text()) {
+								s.match = append(s.match, scanner.Text())
+								s.matches++
+								line = lexer.Line + lineInString
+								lineInString++
+								if *flagLineNumber {
+									s.line = append(s.line, uint32(line+1))
+								}
+							}
+						}
 					} else if regex.MatchString(text) {
 						// match the token but print the line that contains it
 						s.match = append(s.match, lexer.GetLine())
