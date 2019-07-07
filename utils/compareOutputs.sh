@@ -1,6 +1,6 @@
 #!/bin/sh
 
-go build -o gg main.go scan.go
+go build -o gg *.go
 
 options="a aC aD aI aK aN aO aP aR aS aV"
 queries="grep for test 2 true -42 5.25 -5.25"
