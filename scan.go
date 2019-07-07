@@ -1,8 +1,6 @@
 package main
 
 import (
-	"archive/tar"
-	"archive/zip"
 	"bufio"
 	"bytes"
 	"compress/bzip2"
@@ -20,7 +18,6 @@ import (
 	"syscall"
 
 	"github.com/MichaelTJones/lex"
-	"github.com/cavaliercoder/go-cpio"
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -66,107 +63,28 @@ func doScan() Summary {
 
 	// initialize regular expression matcher
 	var err error
-	regex, err = regexp.Compile(flag.Arg(fixedArgs - 1))
+	regex, err = getRegexp(flag.Arg(fixedArgs - 1))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(2) // failure: (like grep: return 2 instead of 1)
-		// return Summary{}
+		return Summary{}
 	}
 
-	if !*flagActLikeGrep {
-		// handle "all" flag first before subsequent upper-case anti-flags
-		if strings.Contains(flag.Arg(0), "a") {
-			C = true
-			D = true
-			I = true
-			K = true
-			N = true
-			O = true
-			P = true
-			R = true
-			S = true
-			T = true
-			V = true
-		}
-
-		// initialize token class inclusion flags
-		for _, class := range flag.Arg(0) {
-			switch class {
-			case 'a':
-				// already noted
-			case 'c':
-				C = true
-			case 'C':
-				C = false
-			case 'd':
-				D = true
-			case 'D':
-				D = false
-			case 'g':
-				G = true
-			case 'i':
-				I = true
-			case 'I':
-				I = false
-			case 'k':
-				K = true
-			case 'K':
-				K = false
-			case 'n':
-				N = true
-			case 'N':
-				N = false
-			case 'o':
-				O = true
-			case 'O':
-				O = false
-			case 'p':
-				P = true
-			case 'P':
-				P = false
-			case 'r':
-				R = true
-			case 'R':
-				R = false
-			case 's':
-				S = true
-			case 'S':
-				S = false
-			case 't':
-				T = true
-			case 'T':
-				T = false
-			case 'v':
-				V = true
-			case 'V':
-				V = false
-			default:
-				fmt.Fprintf(os.Stderr, "error: unrecognized token class '%c'\n", class)
-			}
-		}
-
-		// initialize numeric value matcher
-		if V && len(flag.Arg(1)) > 0 {
-			n := flag.Arg(1)
-			if n[0] == '-' {
-				sign = -1
-				n = n[1:]
-			}
-			vInt, err = strconv.ParseUint(n, 0, 64)
-			vIsInt = true
-			if err != nil {
-				// we did not consume all the input...maybe it is a float.
-				vFloat, err = strconv.ParseFloat(n, 64)
-				_ = vFloat + -5.25
-				if err != nil {
-					V = false
-					fmt.Fprintf(os.Stderr, "error: %v\n", err)
-				} else {
-					vIsInt = false
-				}
-			}
-		}
-	}
+	// gg mode
+	mode := setupModeGG(flag.Args())
+	C = mode.C
+	D = mode.D
+	G = mode.G
+	I = mode.I
+	K = mode.K
+	N = mode.N
+	O = mode.O
+	P = mode.P
+	R = mode.R
+	S = mode.S
+	T = mode.T
+	V = mode.V
+	vIsInt = mode.vIsInt
+	vInt = mode.vInt
+	vFloat = mode.vFloat
 
 	println("scan begins")
 	scanned := false
@@ -357,113 +275,7 @@ func (s *Scan) File(name string) {
 
 	// process plain files
 	if info.Mode().IsRegular() {
-		var err error
-		var data []byte
-		if isArchive(name) && isCompressed(name) {
-			name, data, err = decompress(name, nil)
-			if err != nil {
-				println(err)
-				return
-			}
-		}
-
-		var archive io.Reader
-		switch {
-		case len(data) == 0:
-			f, err := os.Open(name)
-			if err != nil {
-				println(err)
-				return
-			}
-			defer f.Close()
-			archive = f
-		default:
-			archive = bytes.NewReader(data)
-		}
-
-		ext := strings.ToLower(filepath.Ext(name))
-		switch {
-		case ext == ".cpio":
-			println("processing cpio archive", name)
-			r := cpio.NewReader(archive)
-			for {
-				hdr, err := r.Next()
-				if err == io.EOF {
-					break // End of archive
-				}
-				if err != nil {
-					println(err)
-					return
-				}
-				memberName := name + "::" + hdr.Name // "archive.cpio::file.go"
-				if !isGo(hdr.Name) {
-					println("skipping file with unrecognized extension:", memberName)
-					continue
-				}
-				bytes, err := ioutil.ReadAll(r)
-				if err != nil {
-					println(err)
-					return
-				}
-				s.Scan(memberName, bytes)
-			}
-		case ext == ".tar":
-			println("processing tar archive", name)
-			tr := tar.NewReader(archive)
-			for {
-				hdr, err := tr.Next()
-				if err == io.EOF {
-					break // End of archive
-				}
-				if err != nil {
-					println(err)
-					return
-				}
-				memberName := name + "::" + hdr.Name // "archive.tar::file.go"
-				if !isGo(hdr.Name) {
-					println("skipping file with unrecognized extension:", memberName)
-					continue
-				}
-				bytes, err := ioutil.ReadAll(tr)
-				if err != nil {
-					println(err)
-					return
-				}
-				s.Scan(memberName, bytes)
-			}
-		case ext == ".zip":
-			println("processing zip archive:", name)
-			r, err := zip.OpenReader(name)
-			if err != nil {
-				println(err)
-				return
-			}
-			defer r.Close()
-
-			for _, f := range r.File {
-				fullName := name + "::" + f.Name // "archive.zip::file.go"
-				if !isGo(f.Name) {
-					println("skipping file with unrecognized extension:", fullName)
-					continue
-				}
-				rc, err := f.Open()
-				if err != nil {
-					println(err)
-					return
-				}
-				bytes, err := ioutil.ReadAll(rc)
-				rc.Close()
-				if err != nil {
-					println(err)
-					return
-				}
-				s.Scan(fullName, bytes)
-			}
-		case isGo(name):
-			s.Scan(name, nil)
-		default:
-			println("skipping file with unrecognized extension:", name)
-		}
+		processRegularFile(name, s)
 	} else if info.Mode().IsDir() { // process directories
 		switch *flagRecursive {
 		case false:
@@ -909,6 +721,239 @@ func plural(n int, fill string) string {
 		return fill
 	}
 	return "s"
+}
+
+type searchMode struct {
+	// c: search Comments ("//..." or "/*...*/")
+	C bool
+	// d: search Defined non-types (iota, nil, new, true,...)
+	D bool
+	// grep mode ?
+	G bool
+	// i: search Identifiers ([a-zA-Z][a-zA-Z0-9]*)
+	I bool
+	// k: search Keywords (if, for, func, go, ...)
+	K bool
+	// n: search Numbers as strings (255 as 255, 0.255, 1e255)
+	N bool
+	// o: search Operators (,+-*/[]{}()>>...)
+	O bool
+	// p: search Package names
+	P bool
+	// r: search Rune literals ('a', '\U00101234')
+	R bool
+	// s: search Strings ("quoted" or `raw`)
+	S bool
+	// t: search Types (bool, int, float64, map, ...)
+	T bool
+	// v: search numeric Values (255 as 0b1111_1111, 0377, 255, 0xff)
+	V      bool
+	vIsInt bool
+	vInt   uint64
+	vFloat float64
+}
+
+func parseFirstArg(input string) searchMode {
+	result := searchMode{}
+	// a: search all of the following
+	if strings.Contains(input, "a") {
+		result.C = true
+		result.D = true
+		result.I = true
+		result.K = true
+		result.N = true
+		result.O = true
+		result.P = true
+		result.R = true
+		result.S = true
+		result.T = true
+		result.V = true
+	}
+
+	// initialize token class inclusion flags
+	for _, class := range input {
+		switch class {
+		case 'a':
+			// already noted
+		case 'c':
+			result.C = true
+		case 'C':
+			result.C = false
+		case 'd':
+			result.D = true
+		case 'D':
+			result.D = false
+		case 'g':
+			result.G = true
+		case 'i':
+			result.I = true
+		case 'I':
+			result.I = false
+		case 'k':
+			result.K = true
+		case 'K':
+			result.K = false
+		case 'n':
+			result.N = true
+		case 'N':
+			result.N = false
+		case 'o':
+			result.O = true
+		case 'O':
+			result.O = false
+		case 'p':
+			result.P = true
+		case 'P':
+			result.P = false
+		case 'r':
+			result.R = true
+		case 'R':
+			result.R = false
+		case 's':
+			result.S = true
+		case 'S':
+			result.S = false
+		case 't':
+			result.T = true
+		case 'T':
+			result.T = false
+		case 'v':
+			result.V = true
+		case 'V':
+			result.V = false
+		default:
+			fmt.Fprintf(os.Stderr, "error: unrecognized token class '%c'\n", class)
+		}
+	}
+	return result
+}
+
+func setupModeGG(args []string) searchMode {
+	res := searchMode{}
+	if !*flagActLikeGrep {
+		if len(args) < 2 {
+			// not enough args received, complete args with empty strings
+			for i := len(args); i < 2; i++ {
+				args = append(args, "")
+			}
+		}
+		// handle "all" flag first before subsequent upper-case anti-flags
+		res = parseFirstArg(args[0])
+
+		// initialize numeric value matcher
+		if res.V && len(args[1]) > 0 {
+			n := args[1]
+			if n[0] == '-' {
+				sign = -1
+				n = n[1:]
+			}
+			var err error
+			res.vInt, err = strconv.ParseUint(n, 0, 64)
+			res.vIsInt = true
+			if err != nil {
+				res.vIsInt = false
+				// we did not consume all the input...maybe it is a float.
+				res.vFloat, err = strconv.ParseFloat(n, 64)
+				_ = res.vFloat + -5.25
+				if err != nil {
+					res.V = false
+					fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				}
+			}
+		}
+	}
+	return res
+}
+
+func getRegexp(input string) (*regexp.Regexp, error) {
+	regexp, err := regexp.Compile(input)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	}
+	return regexp, err
+}
+
+// Scanner is an interace created to allow us to create some tests
+type Scanner interface {
+	Scan(name string, source []byte)
+}
+
+type ReadNexter interface {
+	Read(p []byte) (n int, err error)
+	Next() (string, error)
+}
+
+func processRegularFile(name string, s Scanner) {
+	var err error
+	var data []byte
+	if isArchive(name) && isCompressed(name) {
+		name, data, err = decompress(name, nil)
+		if err != nil {
+			println(err)
+			return
+		}
+	}
+
+	var archive io.Reader
+	switch {
+	case len(data) == 0:
+		f, err := os.Open(name)
+		if err != nil {
+			println(err)
+			return
+		}
+		defer f.Close()
+		archive = f
+	default:
+		archive = bytes.NewReader(data)
+	}
+
+	ext := strings.ToLower(filepath.Ext(name))
+	switch {
+	case ext == ".cpio":
+		println("processing cpio archive", name)
+		r := newMultiReader(archive, ext, "")
+		scanFile(name, r, s)
+	case ext == ".tar":
+		println("processing tar archive", name)
+		r := newMultiReader(archive, ext, "")
+		scanFile(name, r, s)
+	case ext == ".zip":
+		println("processing zip archive:", name)
+		mr := newMultiReader(nil, ext, name)
+		scanFile(name, mr, s)
+	case isGo(name):
+		s.Scan(name, nil)
+	default:
+		println("skipping file with unrecognized extension:", name)
+	}
+}
+
+func scanFile(fileName string, r ReadNexter, s Scanner) {
+	for {
+		name, err := r.Next()
+		if err == io.EOF {
+			break // End of archive
+		}
+		if err != nil {
+			println(err)
+			return
+		}
+
+		memberName := fileName + "::" + name // "archive.cpio::file.go"
+		if !isGo(name) {
+			println("skipping file with unrecognized extension:", memberName)
+			continue
+		}
+		var buf bytes.Buffer
+		buf.ReadFrom(r)
+		bytes := buf.Bytes()
+		if err != nil {
+			println(err)
+			return
+		}
+		s.Scan(memberName, bytes)
+	}
 }
 
 func getResourceUsage() (user, system float64, size uint64) {

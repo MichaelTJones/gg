@@ -172,20 +172,13 @@ func main() {
 	}
 
 	// control concurrency for testing (no disadvantage for maximal concurrrency)
-	//  note: not setting runtime, just limiting self-use
-	if *flagCPUs == 0 { // claim CPUs
-		*flagCPUs = runtime.NumCPU()
-	} else if *flagCPUs < 0 { // spare CPUs
-		*flagCPUs += runtime.NumCPU() // "-cpu -2" ==> "all but 2 CPUs"
-	}
-	if *flagCPUs < 2 {
-		*flagCPUs = 2
-	}
+
+	*flagCPUs = getMaxCPU()
 
 	// bonus feature
 	// If you make a symbolic link to the executable or otherwise rename it from "gg" then it
 	// will automatically run in "be like grep" mode.
-	if os.Args[0] != "gg" {
+	if !strings.HasSuffix(os.Args[0], "gg") {
 		*flagActLikeGrep = true // if user's made a symlink or renamed, become grep
 	}
 
@@ -220,4 +213,19 @@ func main() {
 		os.Exit(1) // failure: no match
 	}
 	os.Exit(0) // success: 1 or more matches
+}
+
+func getMaxCPU() int {
+	if *flagCPUs != 1 {
+		if *flagCPUs == 0 { // claim CPUs
+			return runtime.NumCPU()
+		} else if *flagCPUs < 0 { // spare CPUs
+			res := *flagCPUs + runtime.NumCPU() // "-cpu -2" ==> "all but 2 CPUs"
+			if res < 1 {
+				return 1
+			}
+			return res
+		}
+	}
+	return 1
 }
