@@ -446,6 +446,24 @@ func (s *Scan) Scan(name string, source []byte) {
 	}
 }
 
+func isBinary(source []byte) bool {
+	const byteLimit = 2 * 1024
+	const nonPrintLimit = 8 + 1 // one Unicode byte order mark is forgiven
+	nonPrint := 0
+	for i, c := range source {
+		if i > byteLimit {
+			break
+		}
+		if c < 32 && c != ' ' && c != '\n' && c != '\t' {
+			nonPrint++
+		}
+		if nonPrint > nonPrintLimit {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Scan) scan(name string, source []byte) {
 	var err error
 	var newName string
@@ -453,6 +471,13 @@ func (s *Scan) scan(name string, source []byte) {
 	if err != nil {
 		return
 	}
+
+	if !*flagGo && isBinary(source) {
+		// enable if desired. makes log cluttered
+		// printf("skipping binary file %s", newName)
+		return
+	}
+
 	s.path = newName
 	s.bytes += len(source)
 
