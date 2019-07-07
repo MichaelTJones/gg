@@ -195,9 +195,9 @@ func main() {
 	// perform actual work
 	start := time.Now()
 	s, err := doScan()
-	if err != nil {
-		printf("error: %v", err)
-	}
+	// if err != nil {
+	// 	printf("error: %v", err)
+	// }
 	elapsed := time.Since(start).Seconds()
 	user, system, _ := getResourceUsage()
 
@@ -214,7 +214,7 @@ func main() {
 	// exit with grep-compatible codes
 	switch {
 	case err != nil:
-		fmt.Fprintf(os.Stderr, "error: %v", err)
+		// fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(2) // program failure: (like grep: return 2 instead of 1)
 	case s.matches <= 0:
 		os.Exit(1) // search unsuccessful: no match

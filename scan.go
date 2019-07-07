@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/bzip2"
 	"compress/gzip"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -45,8 +46,12 @@ var G, C, D, I, K, N, O, P, R, S, T, V bool
 // matching
 var regex *regexp.Regexp // pattern
 
-var sign int // literal sign
-var vIsInt bool
+// warning: do not use negative numbers in value matches. the code here is fine and ready,
+// bbut the lexer does not (can not) decide when a "-" is a prefix negative sign vs when
+// it is a subtraction operator, That's the job of the parser. we can add a mini-parser
+// for this, but for now, just don't enter negative values on ghe command line.
+var sign int       // literal sign
+var vIsInt bool    // is number literal an int or floating point
 var vInt uint64    // literal value
 var vFloat float64 // literal value
 
@@ -58,7 +63,7 @@ func doScan() (Summary, error) {
 	}
 
 	if flag.NArg() < fixedArgs {
-		return Summary{}, fmt.Errorf("not enough arguments: missing keywords and pattern")
+		return Summary{}, errors.New("not enough arguments: missing keywords and pattern")
 	}
 
 	// initialize regular expression matcher
@@ -289,7 +294,8 @@ func (s *Scan) File(name string) {
 			}
 
 			// user request: honor .gitignore blacklist
-			skip := make(map[string]bool)
+			var skip map[string]bool
+
 			foundGitIgnore := false
 			for _, base := range bases {
 				if base.Name() == ".gitignore" {
@@ -298,9 +304,10 @@ func (s *Scan) File(name string) {
 				}
 			}
 			if foundGitIgnore {
-				skip[".gitignore"] = true
 				gi, err := os.Open(".gitignore")
 				if err == nil {
+					skip = make(map[string]bool)
+					skip[".gitignore"] = true
 					scanner := bufio.NewScanner(gi)
 					for scanner.Scan() {
 						skip[scanner.Text()] = true
@@ -310,7 +317,7 @@ func (s *Scan) File(name string) {
 			}
 
 			for _, base := range bases {
-				if skip[base.Name()] {
+				if skip != nil && skip[base.Name()] {
 					printf("  skipping .gitignored file %q", base.Name())
 					continue
 				}
@@ -332,15 +339,6 @@ func (s *Scan) File(name string) {
 
 				// user request: honor .gitignore blacklist
 				var skip map[string]bool
-
-				// foundGitIgnore := false
-				// for _, base := range bases {
-				// 	if base.Name() == ".gitignore" {
-				// 		foundGitIgnore = true
-				// 		break
-				// 	}
-				// }
-				// if foundGitIgnore {
 
 				gi, err := os.Open(".gitignore")
 				if err == nil {
@@ -389,7 +387,7 @@ type Summary struct {
 }
 
 func (s *Summary) print(elapsed, user, system float64, printer func(string, ...interface{})) {
-	printer("performance")
+	printer("performance\n")
 	printer("  grep  %d matches\n", s.matches)
 	printer("  work  %d bytes, %d tokens, %d lines, %d files\n",
 		s.bytes, s.tokens, s.lines, s.files)
@@ -412,13 +410,13 @@ var work []chan Work
 var result []chan *Scan
 var done chan Summary
 
-func worker(index int) {
-	for w := range work[index] {
+func worker(wIn chan Work, sOut chan *Scan) {
+	for w := range wIn {
 		s := NewScan()
 		s.scan(w.name, w.source)
-		result[index] <- s
+		sOut <- s
 	}
-	result[index] <- &Scan{complete: true} // signal that this worker is done
+	sOut <- &Scan{complete: true} // signal that this worker is done
 }
 
 func (s *Scan) Scan(name string, source []byte) {
@@ -427,9 +425,10 @@ func (s *Scan) Scan(name string, source []byte) {
 		work = make([]chan Work, workers)
 		result = make([]chan *Scan, workers)
 		for i := 0; i < workers; i++ {
-			work[i] = make(chan Work, 512)
-			result[i] = make(chan *Scan, 512)
-			go worker(i)
+			const balanceQueue = 1024
+			work[i] = make(chan Work, balanceQueue)
+			result[i] = make(chan *Scan, balanceQueue)
+			go worker(work[i], result[i])
 		}
 		done = make(chan Summary)
 		go reporter() // wait for and gather results
@@ -437,13 +436,13 @@ func (s *Scan) Scan(name string, source []byte) {
 	}
 
 	switch {
-	case name != "": // another file to scan
-		work[scattered%workers] <- Work{name: name, source: source} // enqueue scan request
-		scattered++
 	case name == "": // end of scan
 		for i := range work {
 			close(work[i]) // signal completion to workers
 		}
+	default: // another file to scan
+		work[scattered%workers] <- Work{name: name, source: source} // enqueue scan request
+		scattered++
 	}
 }
 
@@ -600,11 +599,9 @@ func (s *Scan) Complete() Summary {
 	if !s.complete {
 		s.Scan("", nil)  // Signal end of additional files...
 		s.total = <-done // ...and await completion.of scanning
-
 		for i := range result {
 			close(result[i])
 		}
-
 		s.complete = true // Record completion
 	}
 	return s.total
