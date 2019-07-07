@@ -619,7 +619,6 @@ func (s *Scan) Scan(name string, source []byte) {
 			result[i] = make(chan *Scan, 512)
 			go worker(i)
 		}
-
 		done = make(chan Summary)
 		go reporter() // wait for and gather results
 		first = false
