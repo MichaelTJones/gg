@@ -425,7 +425,7 @@ func (s *Scan) Scan(name string, source []byte) {
 		work = make([]chan Work, workers)
 		result = make([]chan *Scan, workers)
 		for i := 0; i < workers; i++ {
-			const balanceQueue = 1024
+			const balanceQueue = 256
 			work[i] = make(chan Work, balanceQueue)
 			result[i] = make(chan *Scan, balanceQueue)
 			go worker(work[i], result[i])
@@ -447,7 +447,7 @@ func (s *Scan) Scan(name string, source []byte) {
 }
 
 func isBinary(source []byte) bool {
-	const byteLimit = 2 * 1024
+	const byteLimit = 1024
 	const nonPrintLimit = 8 + 1 // one Unicode byte order mark is forgiven
 	nonPrint := 0
 	for i, c := range source {
@@ -488,7 +488,7 @@ func (s *Scan) scan(name string, source []byte) {
 		for scanner.Scan() {
 			s.lines++
 			if regex.MatchString(scanner.Text()) {
-				s.match = append(s.match, scanner.Text()+"\n")
+				s.match = append(s.match, scanner.Text())
 				s.matches++
 				if *flagLineNumber {
 					s.line = append(s.line, line)
@@ -535,13 +535,13 @@ func (s *Scan) scan(name string, source []byte) {
 			// if !skip {
 			if true || !skip {
 				if flag && lexer.Line > line {
-					if lexer.Type == lex.String && lexer.Subtype == lex.Raw {
+					if lexer.Type == lex.String && lexer.Subtype == lex.Raw && strings.Count(text, "\n") > 0 {
 						// match each line of the raw string individually
 						scanner := bufio.NewScanner(strings.NewReader(text))
 						lineInString := 0
 						for scanner.Scan() {
 							if regex.MatchString(scanner.Text()) {
-								s.match = append(s.match, scanner.Text()+"\n")
+								s.match = append(s.match, scanner.Text())
 								s.matches++
 								line = lexer.Line + lineInString
 								lineInString++
@@ -574,6 +574,8 @@ func (s *Scan) scan(name string, source []byte) {
 			handle(C)
 		case lex.Operator:
 			handle(O)
+		case lex.String:
+			handle(S)
 		case lex.Rune:
 			handle(R)
 		case lex.Identifier:
@@ -613,8 +615,6 @@ func (s *Scan) scan(name string, source []byte) {
 			handle(D)
 		case lex.Character:
 			// seems maningless match unexpected illegal characters, maybe "."?
-		case lex.String: // do this one last...so that raw string matches won't prevent others
-			handle(S)
 		}
 	}
 }
@@ -634,13 +634,13 @@ func (s *Scan) Complete() Summary {
 
 func reporter() {
 	var w io.Writer
+	var b *bufio.Writer
 
 	switch lower := strings.ToLower(*flagOutput); {
 	case lower == "" || lower == "[stdout]":
 		file := os.Stdout
 		if *flagBufferWrites {
-			b := bufio.NewWriterSize(file, *flagBufferSize) // ensure buffered writes
-			defer b.Flush()
+			b = bufio.NewWriterSize(file, *flagBufferSize) // ensure buffered writes
 			w = b
 		} else {
 			w = file
@@ -648,8 +648,7 @@ func reporter() {
 	case lower == "[stderr]":
 		file := os.Stderr
 		if *flagBufferWrites {
-			b := bufio.NewWriterSize(file, *flagBufferSize) // ensure buffered writes
-			defer b.Flush()
+			b = bufio.NewWriterSize(file, *flagBufferSize) // ensure buffered writes
 			w = b
 		} else {
 			w = file
@@ -712,7 +711,10 @@ func reporter() {
 					m = m[start:]
 				}
 			}
-			fmt.Fprintf(w, "%s", m)
+			fmt.Fprintf(w, "%s\n", m)
+		}
+		if b != nil {
+			b.Flush()
 		}
 
 		total.bytes += s.bytes

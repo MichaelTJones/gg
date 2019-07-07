@@ -24,7 +24,7 @@ var flagFileName = flag.Bool("h", false, `disply file name ("header") for each m
 var flagLineNumber = flag.Bool("n", false, "disply line number for each match")
 
 // secret developer flags
-var flagSummary = flag.Bool("summary", true, "print performance summary")
+var flagSummary = flag.Bool("summary", false, "print performance summary")
 var flagBufferWrites = flag.Bool("bufferWrites", true, "buffer output writes")
 var flagBufferSize = flag.Int("bufferSize", 64*1024, "output buffer size")
 var flagTrim = flag.Bool("trim", false, "trim matched strings")
