@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"runtime"
+	"runtime/pprof"
 	"strings"
 	"time"
 )
@@ -28,6 +29,8 @@ var flagSummary = flag.Bool("summary", false, "print performance summary")
 var flagBufferWrites = flag.Bool("bufferWrites", true, "buffer output writes")
 var flagBufferSize = flag.Int("bufferSize", 64*1024, "output buffer size")
 var flagTrim = flag.Bool("trim", false, "trim matched strings")
+var flagProfileCPU = flag.String("cpuprofile", "", "write cpu profile to file")
+var flagProfileMem = flag.String("memprofile", "", "write memory profile to file")
 
 var usage = `NAME
     gg - grep Go-language source code
@@ -171,8 +174,23 @@ func main() {
 		log.SetOutput(file)
 	}
 
-	// control concurrency for testing (no disadvantage for maximal concurrrency)
+	if *flagProfileCPU != "" {
+		f, err := os.Create(*flagProfileCPU)
+		if err != nil {
+			log.Fatal("could not create CPU profile: ", err)
+		}
+		defer f.Close()
+		if err := pprof.StartCPUProfile(f); err != nil {
+			log.Fatal("could not start CPU profile: ", err)
+		}
+		defer pprof.StopCPUProfile()
+		// defer func() {
+		// 	fmt.Fprintf(os.Stderr, "cpu profile recorded in %s", *flagProfileCPU)
+		// 	pprof.StopCPUProfile()
+		// }()
+	}
 
+	// control concurrency for testing (no disadvantage for maximal concurrrency)
 	*flagCPUs = getMaxCPU()
 
 	// bonus feature:
@@ -209,6 +227,22 @@ func main() {
 		s.print(elapsed, user, system, func(f string, v ...interface{}) {
 			_, _ = fmt.Printf(f, v...) // print to stdout
 		})
+	}
+
+	if *flagProfileMem != "" {
+		f, err := os.Create(*flagProfileMem)
+		if err != nil {
+			log.Fatal("could not create memory profile: ", err)
+		}
+		defer f.Close()
+		runtime.GC() // get up-to-date statistics
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			log.Fatal("could not write memory profile: ", err)
+		}
+	}
+
+	if *flagProfileCPU != "" || *flagProfileMem != "" {
+		return
 	}
 
 	// exit with grep-compatible codes

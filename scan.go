@@ -473,7 +473,7 @@ func (s *Scan) scan(name string, source []byte) {
 	}
 
 	if !*flagGo && isBinary(source) {
-		// enable if desired. makes log cluttered
+		// enable printf if desired. makes log cluttered:
 		// printf("skipping binary file %s", newName)
 		return
 	}
