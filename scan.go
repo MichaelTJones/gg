@@ -425,7 +425,7 @@ func (s *Scan) Scan(name string, source []byte) {
 		work = make([]chan Work, workers)
 		result = make([]chan *Scan, workers)
 		for i := 0; i < workers; i++ {
-			const balanceQueue = 256
+			const balanceQueue = 512
 			work[i] = make(chan Work, balanceQueue)
 			result[i] = make(chan *Scan, balanceQueue)
 			go worker(work[i], result[i])
@@ -638,7 +638,8 @@ func (s *Scan) scan(name string, source []byte) {
 func (s *Scan) Complete() Summary {
 	if !s.complete {
 		s.Scan("", nil)  // Signal end of additional files...
-		s.total = <-done // ...and await completion.of scanning
+		s.total = <-done // ...and await completion.of scanning & reporting
+
 		for i := range result {
 			close(result[i])
 		}
