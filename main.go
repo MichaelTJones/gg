@@ -1,3 +1,8 @@
+/*
+   gg is classic grep (g/RE/p) with Go knowledge to search package names,
+   numbers, identifiers, comments, keywords, and other language tokens.
+*/
+
 package main
 
 import (
@@ -11,7 +16,8 @@ import (
 	"time"
 )
 
-var flagCPUs = flag.Int("cpu", 0, "number of CPUs to use (0 for all)")
+// common flags
+var flagCPUs = flag.Int("cpu", -1, "number of CPUs to use (0 for all)")
 var flagGo = flag.Bool("go", true, `limit grep to Go files ("main.go")`)
 var flagList = flag.String("list", "", "list of filenames to grep")
 var flagLog = flag.String("log", "", `write log to named file (or "[stdout]" or "[stderr]")`)
@@ -32,6 +38,7 @@ var flagTrim = flag.Bool("trim", false, "trim matched strings")
 var flagProfileCPU = flag.String("cpuprofile", "", "write cpu profile to file")
 var flagProfileMem = flag.String("memprofile", "", "write memory profile to file")
 
+// usage string is the whole man page
 var usage = `NAME
     gg - grep Go-language source code
 
@@ -151,11 +158,64 @@ SEE ALSO
 `
 
 func main() {
-	// parse command line before configuring logging (to allow "-log xyz.txt")
+	// parse command line (to allow profiling)
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "\n%s", usage)
 	}
 	flag.Parse()
+
+	// launch program
+	status := doProfile()
+
+	// return program status to shell
+	os.Exit(status)
+}
+
+// profile the program
+func doProfile() int {
+	if *flagProfileCPU != "" {
+		f, err := os.Create(*flagProfileCPU)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "could not create CPU profile: %v\n", err)
+			return 2 // grep-compatible code for program error
+		}
+		defer func() {
+			f.Close()
+			fmt.Fprintf(os.Stderr, "cpu profile recorded in %s\n", *flagProfileCPU)
+		}()
+		if err := pprof.StartCPUProfile(f); err != nil {
+			fmt.Fprintf(os.Stderr, "could not start CPU profile: %v\n", err)
+			return 2 // grep-compatible code for program error
+		}
+		defer pprof.StopCPUProfile()
+	}
+
+	// execute the program
+	programStatus := doMain()
+
+	if *flagProfileMem != "" {
+		f, err := os.Create(*flagProfileMem)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "could not create memory profile: %v\n", err)
+			return 2 // grep-compatible code for program error
+		}
+		defer f.Close()
+		defer func() {
+			f.Close()
+			fmt.Fprintf(os.Stderr, "memory profile recorded in %s\n", *flagProfileMem)
+		}()
+		runtime.GC() // get up-to-date statistics
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			fmt.Fprintf(os.Stderr, "could not write memory profile: %v\n", err)
+			return 2 // grep-compatible code for program error
+		}
+	}
+
+	// trigger completion of profiling and return status
+	return programStatus
+}
+
+func doMain() int {
 
 	// set logging format and destination before first log event
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
@@ -169,25 +229,10 @@ func main() {
 	default:
 		file, err := os.Create(*flagLog)
 		if err != nil {
-			log.Fatal(err)
+			log.Print(err)
+			return 2
 		}
 		log.SetOutput(file)
-	}
-
-	if *flagProfileCPU != "" {
-		f, err := os.Create(*flagProfileCPU)
-		if err != nil {
-			log.Fatal("could not create CPU profile: ", err)
-		}
-		defer f.Close()
-		if err := pprof.StartCPUProfile(f); err != nil {
-			log.Fatal("could not start CPU profile: ", err)
-		}
-		defer pprof.StopCPUProfile()
-		// defer func() {
-		// 	fmt.Fprintf(os.Stderr, "cpu profile recorded in %s", *flagProfileCPU)
-		// 	pprof.StopCPUProfile()
-		// }()
 	}
 
 	// control concurrency for testing (no disadvantage for maximal concurrrency)
@@ -196,14 +241,14 @@ func main() {
 	// bonus feature:
 	// If you make a symbolic link to the executable or otherwise rename it from "gg" then it
 	// will automatically run in "be like grep" mode without needing the "g" or any other flag.
-	if !strings.HasSuffix(os.Args[0], "gg") {
-		*flagActLikeGrep = true // if user's made a symlink or renamed, become grep
-	}
+	// if !strings.HasSuffix(os.Args[0], "gg") {
+	// 	*flagActLikeGrep = true // if user's made a symlink or renamed, become grep
+	// }
 
 	if flag.NArg() < 2 {
 		fmt.Fprintf(os.Stderr, "usage: gg [flags] acdiknoprstvg regexp [file ...]\n")
 		fmt.Fprintf(os.Stderr, "    try gg -help for more\n")
-		os.Exit(2) // failure: (like grep: return 2 instead of 1)
+		return 2 // failure: (like grep: return 2 instead of 1)
 	}
 
 	if *flagRecursive {
@@ -213,9 +258,6 @@ func main() {
 	// perform actual work
 	start := time.Now()
 	s, err := doScan()
-	// if err != nil {
-	// 	printf("error: %v", err)
-	// }
 	elapsed := time.Since(start).Seconds()
 	user, system, _ := getResourceUsage()
 
@@ -229,32 +271,18 @@ func main() {
 		})
 	}
 
-	if *flagProfileMem != "" {
-		f, err := os.Create(*flagProfileMem)
-		if err != nil {
-			log.Fatal("could not create memory profile: ", err)
-		}
-		defer f.Close()
-		runtime.GC() // get up-to-date statistics
-		if err := pprof.WriteHeapProfile(f); err != nil {
-			log.Fatal("could not write memory profile: ", err)
-		}
-	}
-
-	if *flagProfileCPU != "" || *flagProfileMem != "" {
-		return
-	}
-
-	// exit with grep-compatible codes
+	// return grep-compatible program status
+	programStatus := 0
 	switch {
 	case err != nil:
-		// fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		os.Exit(2) // program failure: (like grep: return 2 instead of 1)
+		printf("error: %v", err)
+		programStatus = 2 // program failure: (like grep)
 	case s.matches <= 0:
-		os.Exit(1) // search unsuccessful: no match
+		programStatus = 1 // search unsuccessful: no match; handy in shell "&&" constructs
 	default: // err ==nil && s.matches >= 1
-		os.Exit(0) // search successful: 1 or more matches
+		programStatus = 0 // search successful: 1 or more matches
 	}
+	return programStatus
 }
 
 func getMaxCPU() int {

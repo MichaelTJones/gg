@@ -131,7 +131,7 @@ func doScan() (Summary, error) {
 type Scan struct {
 	path  string
 	line  []uint32
-	match []string
+	match [][]byte
 
 	bytes   int
 	tokens  int
@@ -367,6 +367,8 @@ func (s *Scan) File(name string) {
 			}
 
 			err = filepath.Walk(name, walker) // standard library walker
+			// err = walk.Walk(name, walker) // mtj concurrent walker
+			// err = Walk(name, walker) // standard library walker
 			if err != nil {
 				println(err)
 			}
@@ -398,7 +400,7 @@ func (s *Summary) print(elapsed, user, system float64, printer func(string, ...i
 			float64(s.tokens)/elapsed,
 			float64(s.lines)/elapsed,
 			float64(s.files)/elapsed)
-		printer("  scale %d worker%s (parallel speedup = %.2fx)\n",
+		printer("  cpus  %d worker%s (parallel speedup = %.2fx)\n",
 			*flagCPUs, plural(*flagCPUs, ""), (user+system)/elapsed)
 	}
 }
@@ -483,12 +485,18 @@ func (s *Scan) scan(name string, source []byte) {
 
 	// handle grep mode
 	if *flagActLikeGrep || G {
-		scanner := bufio.NewScanner(bytes.NewReader(source))
+		// scanner := bufio.NewScanner(bytes.NewReader(source))
 		line := uint32(1)
-		for scanner.Scan() {
+
+		// for scanner.Scan() {
+		t := source
+		for a, b := 0, bytes.IndexByte(t, '\n'); b > 0 && a < len(t); a, b = b+1, b+1+bytes.IndexByte(t[b+1:], '\n') {
+			if a > b || b > len(t) {
+				break
+			}
 			s.lines++
-			if regex.MatchString(scanner.Text()) {
-				s.match = append(s.match, scanner.Text())
+			if regex.Match(t[a:b]) {
+				s.match = append(s.match, t[a:b])
 				s.matches++
 				if *flagLineNumber {
 					s.line = append(s.line, line)
@@ -507,6 +515,7 @@ func (s *Scan) scan(name string, source []byte) {
 	skip := false
 	// theWholeLine := ""
 	for tok, text := lexer.Scan(); tok != lex.EOF; tok, text = lexer.Scan() {
+		// text := string(bytes)
 		s.tokens++
 
 		// if !skip {
@@ -518,8 +527,8 @@ func (s *Scan) scan(name string, source []byte) {
 
 		// go mini-parser: expect package name after "package" keyword
 		if expectPackageName && tok == lex.Identifier {
-			if P && regex.MatchString(text) {
-				s.match = append(s.match, lexer.GetLine())
+			if P && regex.Match(text) {
+				s.match = append(s.match, text)
 				// s.match = append(s.match, theWholeLine)
 				s.matches++
 				if *flagLineNumber {
@@ -527,7 +536,7 @@ func (s *Scan) scan(name string, source []byte) {
 				}
 			}
 			expectPackageName = false
-		} else if tok == lex.Keyword && text == "package" {
+		} else if tok == lex.Keyword && bytes.Equal(text, []byte("package")) {
 			expectPackageName = true // set expectations
 		}
 
@@ -535,13 +544,16 @@ func (s *Scan) scan(name string, source []byte) {
 			// if !skip {
 			if true || !skip {
 				if flag && lexer.Line > line {
-					if lexer.Type == lex.String && lexer.Subtype == lex.Raw && strings.Count(text, "\n") > 0 {
+					if lexer.Type == lex.String && lexer.Subtype == lex.Raw && bytes.Count(text, []byte("\n")) > 0 {
 						// match each line of the raw string individually
-						scanner := bufio.NewScanner(strings.NewReader(text))
 						lineInString := 0
-						for scanner.Scan() {
-							if regex.MatchString(scanner.Text()) {
-								s.match = append(s.match, scanner.Text())
+						t := text
+						for a, b := 0, bytes.IndexByte(t, '\n'); b > 0 && a < len(t); a, b = b+1, b+1+bytes.IndexByte(t[b+1:], '\n') {
+							if a > b || b > len(t) {
+								break
+							}
+							if regex.Match(t[a:b]) {
+								s.match = append(s.match, t[a:b])
 								s.matches++
 								line = lexer.Line + lineInString
 								lineInString++
@@ -550,13 +562,16 @@ func (s *Scan) scan(name string, source []byte) {
 								}
 							}
 						}
-					} else if lexer.Type == lex.Comment && lexer.Subtype == lex.Block && strings.Count(text, "\n") > 0 {
+					} else if lexer.Type == lex.Comment && lexer.Subtype == lex.Block && bytes.Count(text, []byte("\n")) > 0 {
 						// match each line of the block comment individually
-						scanner := bufio.NewScanner(strings.NewReader(text))
 						lineInString := 0
-						for scanner.Scan() {
-							if regex.MatchString(scanner.Text()) {
-								s.match = append(s.match, scanner.Text())
+						t := text
+						for a, b := 0, bytes.IndexByte(t, '\n'); b > 0 && a < len(t); a, b = b+1, b+1+bytes.IndexByte(t[b+1:], '\n') {
+							if a > b || b > len(t) {
+								break
+							}
+							if regex.Match(t[a:b]) {
+								s.match = append(s.match, t[a:b])
 								s.matches++
 								line = lexer.Line + lineInString
 								lineInString++
@@ -565,7 +580,7 @@ func (s *Scan) scan(name string, source []byte) {
 								}
 							}
 						}
-					} else if regex.MatchString(text) {
+					} else if regex.Match(text) {
 						// match the token but print the line that contains it
 						s.match = append(s.match, lexer.GetLine())
 						// s.match = append(s.match, theWholeLine)
@@ -581,7 +596,7 @@ func (s *Scan) scan(name string, source []byte) {
 
 		switch tok {
 		case lex.Space:
-			if text == "\n" {
+			if len(text) == 1 && text[0] == '\n' {
 				skip = false
 				s.lines++
 			}
@@ -608,14 +623,14 @@ func (s *Scan) scan(name string, source []byte) {
 				switch vIsInt {
 				case true:
 					var nI uint64
-					nI, err = strconv.ParseUint(n, 0, 64)
+					nI, err = strconv.ParseUint(string(n), 0, 64)
 					if err == nil && nS == sign && nI == vInt {
 						s.match = append(s.match, lexer.GetLine()) // match the token but print the line
 						line = lexer.Line
 					}
 				case false:
 					var nF float64
-					nF, err = strconv.ParseFloat(n, 64)
+					nF, err = strconv.ParseFloat(string(n), 64)
 					if err == nil && nS == sign && nF == vFloat {
 						s.match = append(s.match, lexer.GetLine()) // match the token but print the line
 						line = lexer.Line
@@ -727,7 +742,8 @@ func reporter() {
 					m = m[start:]
 				}
 			}
-			fmt.Fprintf(w, "%s\n", m)
+			w.Write(m)
+			w.Write([]byte{'\n'})
 		}
 		if b != nil {
 			b.Flush() // bug fix: defer flush not acceptable
