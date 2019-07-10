@@ -129,7 +129,7 @@ func doScan() (Summary, error) {
 }
 
 type Scan struct {
-	path  string
+	path  []byte
 	line  []uint32
 	match [][]byte
 
@@ -144,6 +144,7 @@ type Scan struct {
 
 func NewScan() *Scan {
 	return &Scan{}
+	// return &Scan{match: make([][]byte, 0, 256)} // preallocate
 }
 
 func isVisible(name string) bool {
@@ -390,9 +391,16 @@ type Summary struct {
 
 func (s *Summary) print(elapsed, user, system float64, printer func(string, ...interface{})) {
 	printer("performance\n")
-	printer("  grep  %d matches\n", s.matches)
-	printer("  work  %d bytes, %d tokens, %d lines, %d files\n",
-		s.bytes, s.tokens, s.lines, s.files)
+	if s.matches == 1 {
+		printer("  grep  %d match\n", s.matches)
+	} else {
+		printer("  grep  %d matches\n", s.matches)
+	}
+	printer("  work  %d byte%s, %d token%s, %d line%s, %d file%s\n",
+		s.bytes, plural(s.bytes, ""),
+		s.tokens, plural(s.tokens, ""),
+		s.lines, plural(s.lines, ""),
+		s.files, plural(s.files, ""))
 	printer("  time  %.6f sec elapsed, %.6f sec user + %.6f system\n", elapsed, user, system)
 	if elapsed > 0 {
 		printer("  rate  %.0f bytes/sec, %.0f tokens/sec, %.0f lines/sec, %.0f files/sec\n",
@@ -460,6 +468,13 @@ func (s *Scan) Scan(name string, source []byte) {
 			close(work[0]) // signal completion to workers
 		}
 	default: // another file to scan
+		// if false { // experiment with prefetching
+		// 	var err error
+		// 	name, source, err = decompress(name, source)
+		// 	if err != nil {
+		// 		return
+		// 	}
+		// }
 		switch *flagUnordered {
 		case false:
 			work[scattered%workers] <- Work{name: name, source: source} // enqueue scan request
@@ -471,7 +486,7 @@ func (s *Scan) Scan(name string, source []byte) {
 }
 
 func isBinary(source []byte) bool {
-	const byteLimit = 1024
+	const byteLimit = 2 * 1024
 	const nonPrintLimit = 8 + 1 // one Unicode byte order mark is forgiven
 	nonPrint := 0
 	for i, c := range source {
@@ -502,8 +517,9 @@ func (s *Scan) scan(name string, source []byte) {
 		return
 	}
 
-	s.path = newName
+	s.path = []byte(newName)
 	s.bytes += len(source)
+	s.lines += bytes.Count(source, []byte{'\n'})
 
 	// handle grep mode
 	if *flagActLikeGrep || G {
@@ -512,13 +528,12 @@ func (s *Scan) scan(name string, source []byte) {
 
 		// for scanner.Scan() {
 		t := source
-		for a, b := 0, bytes.IndexByte(t, '\n'); b > 0 && a < len(t); a, b = b+1, b+1+bytes.IndexByte(t[b+1:], '\n') {
-			if a > b || b > len(t) {
+		for a, b := 0, bytes.IndexByte(t, '\n')+1; b > 0 && a < len(t); a, b = b, b+bytes.IndexByte(t[b:], '\n')+1 {
+			if a >= b || a > len(t) {
 				break
 			}
-			s.lines++
 			if regex.Match(t[a:b]) {
-				s.match = append(s.match, t[a:b])
+				s.match = append(s.match, t[a:b-1])
 				s.matches++
 				if *flagLineNumber {
 					s.line = append(s.line, line)
@@ -539,13 +554,6 @@ func (s *Scan) scan(name string, source []byte) {
 	for tok, text := lexer.Scan(); tok != lex.EOF; tok, text = lexer.Scan() {
 		// text := string(bytes)
 		s.tokens++
-
-		// if !skip {
-		// 	theWholeLine = lexer.GetLine()
-		// 	if !regex.MatchString(theWholeLine) {
-		// 		skip = true
-		// 	}
-		// }
 
 		// go mini-parser: expect package name after "package" keyword
 		if expectPackageName && tok == lex.Identifier {
@@ -618,10 +626,6 @@ func (s *Scan) scan(name string, source []byte) {
 
 		switch tok {
 		case lex.Space:
-			if len(text) == 1 && text[0] == '\n' {
-				skip = false
-				s.lines++
-			}
 		case lex.Comment:
 			handle(C)
 		case lex.Operator:
@@ -747,7 +751,8 @@ func reporter() {
 		for i, m := range s.match {
 			// first the filename, from "-h"
 			if *flagFileName {
-				fmt.Fprintf(w, "%s:", s.path)
+				w.Write(s.path)
+				w.Write([]byte{':'})
 			}
 
 			// second the line number, from "-n"
