@@ -37,6 +37,7 @@ var flagBufferSize = flag.Int("bufferSize", 64*1024, "output buffer size")
 var flagTrim = flag.Bool("trim", false, "trim matched strings")
 var flagProfileCPU = flag.String("cpuprofile", "", "write cpu profile to file")
 var flagProfileMem = flag.String("memprofile", "", "write memory profile to file")
+var flagUnordered = flag.Bool("unordered", false, "disregard file traversal order")
 
 // usage string is the whole man page
 var usage = `NAME
@@ -158,20 +159,20 @@ SEE ALSO
 `
 
 func main() {
-	// parse command line (to allow profiling)
+	// parse command line to allow access to profiling options in doProfile()
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "\n%s", usage)
 	}
 	flag.Parse()
 
 	// launch program
-	status := doProfile()
+	programStatus := doProfile()
 
 	// return program status to shell
-	os.Exit(status)
+	os.Exit(programStatus)
 }
 
-// profile the program
+// profile the program's execution
 func doProfile() int {
 	if *flagProfileCPU != "" {
 		f, err := os.Create(*flagProfileCPU)
@@ -216,7 +217,6 @@ func doProfile() int {
 }
 
 func doMain() int {
-
 	// set logging format and destination before first log event
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	switch strings.ToLower(*flagLog) {
@@ -235,7 +235,7 @@ func doMain() int {
 		log.SetOutput(file)
 	}
 
-	// control concurrency for testing (no disadvantage for maximal concurrrency)
+	// control concurrency (for testing and tuning)
 	*flagCPUs = getMaxCPU()
 
 	// bonus feature:
@@ -245,9 +245,9 @@ func doMain() int {
 	// 	*flagActLikeGrep = true // if user's made a symlink or renamed, become grep
 	// }
 
-	if flag.NArg() < 2 {
+	if flag.NArg() < 1 {
 		fmt.Fprintf(os.Stderr, "usage: gg [flags] acdiknoprstvg regexp [file ...]\n")
-		fmt.Fprintf(os.Stderr, "    try gg -help for more\n")
+		fmt.Fprintf(os.Stderr, "    gg -help for details\n")
 		return 2 // failure: (like grep: return 2 instead of 1)
 	}
 
@@ -279,26 +279,24 @@ func doMain() int {
 		programStatus = 2 // program failure: (like grep)
 	case s.matches <= 0:
 		programStatus = 1 // search unsuccessful: no match; handy in shell "&&" constructs
-	default: // err ==nil && s.matches >= 1
+	default: // err==nil && s.matches>=1
 		programStatus = 0 // search successful: 1 or more matches
 	}
 	return programStatus
 }
 
 func getMaxCPU() int {
-	// evaluate caller's preference
-	res := 1
-	if *flagCPUs == 0 {
-		// claim all CPUs (well...generate N many workers)
-		res = runtime.NumCPU()
-	} else if *flagCPUs < 0 {
-		// spare N CPUs (well...generate all-N many workers)
-		res = *flagCPUs + runtime.NumCPU()
+	// honor cpu option flag...
+	cpus := runtime.NumCPU() // default is all CPUs
+	switch {
+	case *flagCPUs > 0:
+		cpus = *flagCPUs // claim N CPUs (+2 means "use 2 CPUs")
+	case *flagCPUs < 0:
+		cpus = *flagCPUs + cpus // spare N CPUs (-2 means "use all but 2 CPUs")
 	}
-
-	// allow at least 2 scan worker goroutines
-	if res < 2 {
-		res = 2
+	// ...but allow at least 2 scan worker goroutines
+	if cpus < 2 {
+		cpus = 2
 	}
-	return res
+	return cpus
 }

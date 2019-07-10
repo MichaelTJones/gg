@@ -123,7 +123,7 @@ func doScan() (Summary, error) {
 			s.File(scanner.Text())
 		}
 	}
-	summary := s.Complete() // parallel rendevousz here...will wait
+	summary := s.Complete() // parallel rendevousz here...waits for completion
 	println("scan ends")
 	return summary, nil
 }
@@ -424,13 +424,25 @@ func worker(wIn chan Work, sOut chan *Scan) {
 func (s *Scan) Scan(name string, source []byte) {
 	if first {
 		workers = *flagCPUs
-		work = make([]chan Work, workers)
-		result = make([]chan *Scan, workers)
-		for i := 0; i < workers; i++ {
-			const balanceQueue = 512
-			work[i] = make(chan Work, balanceQueue)
-			result[i] = make(chan *Scan, balanceQueue)
-			go worker(work[i], result[i])
+		switch *flagUnordered {
+		case false:
+			work = make([]chan Work, workers)
+			result = make([]chan *Scan, workers)
+			for i := 0; i < workers; i++ {
+				const balanceQueue = 512
+				work[i] = make(chan Work, balanceQueue)
+				result[i] = make(chan *Scan, balanceQueue)
+				go worker(work[i], result[i])
+			}
+		case true:
+			const workQueue = 1024
+			work = make([]chan Work, 1)
+			result = make([]chan *Scan, 1)
+			work[0] = make(chan Work, workQueue)
+			result[0] = make(chan *Scan, workQueue)
+			for i := 0; i < workers; i++ {
+				go worker(work[0], result[0])
+			}
 		}
 		done = make(chan Summary)
 		go reporter() // wait for and gather results
@@ -439,11 +451,21 @@ func (s *Scan) Scan(name string, source []byte) {
 
 	switch {
 	case name == "": // end of scan
-		for i := range work {
-			close(work[i]) // signal completion to workers
+		switch *flagUnordered {
+		case false:
+			for i := range work {
+				close(work[i]) // signal completion to workers
+			}
+		case true:
+			close(work[0]) // signal completion to workers
 		}
 	default: // another file to scan
-		work[scattered%workers] <- Work{name: name, source: source} // enqueue scan request
+		switch *flagUnordered {
+		case false:
+			work[scattered%workers] <- Work{name: name, source: source} // enqueue scan request
+		case true:
+			work[0] <- Work{name: name, source: source} // enqueue scan request
+		}
 		scattered++
 	}
 }
@@ -544,7 +566,7 @@ func (s *Scan) scan(name string, source []byte) {
 			// if !skip {
 			if true || !skip {
 				if flag && lexer.Line > line {
-					if lexer.Type == lex.String && lexer.Subtype == lex.Raw && bytes.Count(text, []byte("\n")) > 0 {
+					if lexer.Type == lex.String && lexer.Subtype == lex.Raw && bytes.Count(text, []byte{'\n'}) > 0 {
 						// match each line of the raw string individually
 						lineInString := 0
 						t := text
@@ -562,7 +584,7 @@ func (s *Scan) scan(name string, source []byte) {
 								}
 							}
 						}
-					} else if lexer.Type == lex.Comment && lexer.Subtype == lex.Block && bytes.Count(text, []byte("\n")) > 0 {
+					} else if lexer.Type == lex.Comment && lexer.Subtype == lex.Block && bytes.Count(text, []byte{'\n'}) > 0 {
 						// match each line of the block comment individually
 						lineInString := 0
 						t := text
@@ -703,7 +725,13 @@ func reporter() {
 	completed := 0
 	for {
 		// get next result in search order
-		s := <-result[gathered%workers]
+		var s *Scan
+		switch *flagUnordered {
+		case false:
+			s = <-result[gathered%workers]
+		case true:
+			s = <-result[0]
+		}
 		gathered++
 
 		// handle completion events
@@ -910,7 +938,7 @@ func setupModeGG(args []string) searchMode {
 				res.vIsInt = false
 				// we did not consume all the input...maybe it is a float.
 				res.vFloat, err = strconv.ParseFloat(n, 64)
-				_ = res.vFloat + -5.25
+				// _ = res.vFloat + -5.25
 				if err != nil {
 					res.V = false
 					fmt.Fprintf(os.Stderr, "error: %v\n", err)
