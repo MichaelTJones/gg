@@ -19,7 +19,9 @@ import (
 	"syscall"
 
 	"github.com/MichaelTJones/lex"
+	// "github.com/MichaelTJones/walk"
 	"github.com/klauspost/compress/zstd"
+	// "github.com/mirtchovski/walk"
 )
 
 /*
@@ -129,15 +131,10 @@ func doScan() (Summary, error) {
 }
 
 type Scan struct {
-	path  []byte
-	line  []uint32
-	match [][]byte
-
-	bytes   int
-	tokens  int
-	lines   int
-	matches int
-
+	path     []byte
+	line     []uint32
+	match    [][]byte
+	Summary  // accumulator: bytes, tokens, lines, matches
 	complete bool
 	total    Summary
 }
@@ -381,6 +378,7 @@ type Work struct {
 	name   string
 	source []byte
 }
+
 type Summary struct {
 	bytes   int
 	tokens  int
@@ -392,25 +390,57 @@ type Summary struct {
 func (s *Summary) print(elapsed, user, system float64, printer func(string, ...interface{})) {
 	printer("performance\n")
 	if s.matches == 1 {
-		printer("  grep  %d match\n", s.matches)
+		printer("  grep  %s match\n", formatInt(s.matches))
 	} else {
-		printer("  grep  %d matches\n", s.matches)
+		printer("  grep  %s matches\n", formatInt(s.matches))
 	}
-	printer("  work  %d byte%s, %d token%s, %d line%s, %d file%s\n",
-		s.bytes, plural(s.bytes, ""),
-		s.tokens, plural(s.tokens, ""),
-		s.lines, plural(s.lines, ""),
-		s.files, plural(s.files, ""))
+	printer("  work  %s byte%s, %s token%s, %s line%s, %s file%s\n",
+		formatInt(s.bytes), plural(s.bytes, ""),
+		formatInt(s.tokens), plural(s.tokens, ""),
+		formatInt(s.lines), plural(s.lines, ""),
+		formatInt(s.files), plural(s.files, ""))
 	printer("  time  %.6f sec elapsed, %.6f sec user + %.6f system\n", elapsed, user, system)
 	if elapsed > 0 {
-		printer("  rate  %.0f bytes/sec, %.0f tokens/sec, %.0f lines/sec, %.0f files/sec\n",
-			float64(s.bytes)/elapsed,
-			float64(s.tokens)/elapsed,
-			float64(s.lines)/elapsed,
-			float64(s.files)/elapsed)
+		printer("  rate  %s bytes/sec, %s tokens/sec, %s lines/sec, %s files/sec\n",
+			formatInt(int(float64(s.bytes)/elapsed)),
+			formatInt(int(float64(s.tokens)/elapsed)),
+			formatInt(int(float64(s.lines)/elapsed)),
+			formatInt(int(float64(s.files)/elapsed)))
 		printer("  cpus  %d worker%s (parallel speedup = %.2fx)\n",
 			*flagCPUs, plural(*flagCPUs, ""), (user+system)/elapsed)
 	}
+}
+
+func formatInt(n int) (s string) {
+	if true {
+		// const separator = ","      // comma
+		const separator = "\u202f" // Narrow No-Break Space (NNBSP)
+
+		sign := ""
+		if n < 0 {
+			sign = "-"
+			n = -n
+		}
+
+		s = strconv.Itoa(n)
+
+		n := ""
+		sep := ""
+		for len(s) > 3 {
+			n = s[len(s)-3:] + sep + n
+			sep = separator
+			s = s[:len(s)-3]
+		}
+		if len(s) > 0 {
+			n = s + sep + n
+		}
+
+		s = sign + n
+	} else {
+		s = strconv.Itoa(n)
+	}
+
+	return s
 }
 
 var first = true
@@ -523,10 +553,7 @@ func (s *Scan) scan(name string, source []byte) {
 
 	// handle grep mode
 	if *flagActLikeGrep || G {
-		// scanner := bufio.NewScanner(bytes.NewReader(source))
 		line := uint32(1)
-
-		// for scanner.Scan() {
 		t := source
 		for a, b := 0, bytes.IndexByte(t, '\n')+1; b > 0 && a < len(t); a, b = b, b+bytes.IndexByte(t[b:], '\n')+1 {
 			if a >= b || a > len(t) {
@@ -550,16 +577,13 @@ func (s *Scan) scan(name string, source []byte) {
 
 	expectPackageName := false
 	skip := false
-	// theWholeLine := ""
 	for tok, text := lexer.Scan(); tok != lex.EOF; tok, text = lexer.Scan() {
-		// text := string(bytes)
 		s.tokens++
 
 		// go mini-parser: expect package name after "package" keyword
 		if expectPackageName && tok == lex.Identifier {
 			if P && regex.Match(text) {
 				s.match = append(s.match, text)
-				// s.match = append(s.match, theWholeLine)
 				s.matches++
 				if *flagLineNumber {
 					s.line = append(s.line, uint32(lexer.Line))
@@ -613,7 +637,6 @@ func (s *Scan) scan(name string, source []byte) {
 					} else if regex.Match(text) {
 						// match the token but print the line that contains it
 						s.match = append(s.match, lexer.GetLine())
-						// s.match = append(s.match, theWholeLine)
 						s.matches++
 						line = lexer.Line
 						if *flagLineNumber {
@@ -680,7 +703,6 @@ func (s *Scan) Complete() Summary {
 	if !s.complete {
 		s.Scan("", nil)  // Signal end of additional files...
 		s.total = <-done // ...and await completion.of scanning & reporting
-
 		for i := range result {
 			close(result[i])
 		}
