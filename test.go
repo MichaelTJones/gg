@@ -1,5 +1,5 @@
-// 1
-// 2
+// 1: gg -summary -n -g '(?s:.)' test.go
+// 2: gg -summary -n aV '(?s:.)' test.go
 
 // 4
 // 5
