@@ -38,6 +38,7 @@ var flagTrim = flag.Bool("trim", false, "trim matched strings")
 var flagProfileCPU = flag.String("cpuprofile", "", "write cpu profile to file")
 var flagProfileMem = flag.String("memprofile", "", "write memory profile to file")
 var flagUnordered = flag.Bool("unordered", false, "disregard file traversal order")
+var flagDigits = flag.Bool("digits", false, "format numbers into digit groups")
 
 // usage string is the whole man page
 var usage = `NAME

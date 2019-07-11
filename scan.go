@@ -57,6 +57,22 @@ var vIsInt bool    // is number literal an int or floating point
 var vInt uint64    // literal value
 var vFloat float64 // literal value
 
+type Scan struct {
+	path []byte
+	// line     []uint32
+	match    [][]byte
+	Summary  // accumulator: bytes, tokens, lines, matches
+	complete bool
+	total    Summary
+
+	report []byte
+}
+
+func NewScan() *Scan {
+	return &Scan{}
+	// return &Scan{match: make([][]byte, 0, 256)} // preallocate
+}
+
 func doScan() (Summary, error) {
 	s := NewScan()
 	fixedArgs := 2
@@ -130,20 +146,6 @@ func doScan() (Summary, error) {
 	return summary, nil
 }
 
-type Scan struct {
-	path     []byte
-	line     []uint32
-	match    [][]byte
-	Summary  // accumulator: bytes, tokens, lines, matches
-	complete bool
-	total    Summary
-}
-
-func NewScan() *Scan {
-	return &Scan{}
-	// return &Scan{match: make([][]byte, 0, 256)} // preallocate
-}
-
 func isVisible(name string) bool {
 	if *flagVisible {
 		for _, s := range strings.Split(name, string(os.PathSeparator)) {
@@ -153,6 +155,44 @@ func isVisible(name string) bool {
 		}
 	}
 	return true
+}
+
+func isGo(name string) bool {
+	if !*flagGo {
+		return true
+	}
+	if isCompressed(name) {
+		ext := filepath.Ext(name)
+		name = strings.TrimSuffix(name, ext) // unwrap the compression suffix
+	}
+	return filepath.Ext(name) == ".go"
+}
+
+func isArchive(name string) bool {
+	if isCompressed(name) {
+		ext := filepath.Ext(name)
+		name = strings.TrimSuffix(name, ext) // unwrap the compression suffix
+	}
+	ext := filepath.Ext(name)
+	return ext == ".cpio" || ext == ".tar" || ext == ".zip"
+}
+
+func isBinary(source []byte) bool {
+	const byteLimit = 2 * 1024
+	const nonPrintLimit = 8 + 1 // one Unicode byte order mark is forgiven
+	nonPrint := 0
+	for i, c := range source {
+		if i > byteLimit {
+			break
+		}
+		if c < 32 && c != ' ' && c != '\n' && c != '\t' {
+			nonPrint++
+		}
+		if nonPrint > nonPrintLimit {
+			return true
+		}
+	}
+	return false
 }
 
 func isCompressed(name string) bool {
@@ -228,26 +268,6 @@ func decompress(oldName string, oldData []byte) (newName string, newData []byte,
 	}
 
 	return newName, newData, nil
-}
-
-func isArchive(name string) bool {
-	if isCompressed(name) {
-		ext := filepath.Ext(name)
-		name = strings.TrimSuffix(name, ext) // unwrap the compression suffix
-	}
-	ext := filepath.Ext(name)
-	return ext == ".cpio" || ext == ".tar" || ext == ".zip"
-}
-
-func isGo(name string) bool {
-	if !*flagGo {
-		return true
-	}
-	if isCompressed(name) {
-		ext := filepath.Ext(name)
-		name = strings.TrimSuffix(name, ext) // unwrap the compression suffix
-	}
-	return filepath.Ext(name) == ".go"
 }
 
 func (s *Scan) List(name string) {
@@ -412,7 +432,7 @@ func (s *Summary) print(elapsed, user, system float64, printer func(string, ...i
 }
 
 func formatInt(n int) (s string) {
-	if true {
+	if *flagDigits {
 		// const separator = ","      // comma
 		const separator = "\u202f" // Narrow No-Break Space (NNBSP)
 
@@ -515,22 +535,59 @@ func (s *Scan) Scan(name string, source []byte) {
 	}
 }
 
-func isBinary(source []byte) bool {
-	const byteLimit = 2 * 1024
-	const nonPrintLimit = 8 + 1 // one Unicode byte order mark is forgiven
-	nonPrint := 0
-	for i, c := range source {
-		if i > byteLimit {
-			break
-		}
-		if c < 32 && c != ' ' && c != '\n' && c != '\t' {
-			nonPrint++
-		}
-		if nonPrint > nonPrintLimit {
-			return true
-		}
+func formatMatch(b *bytes.Buffer, path, match []byte, line int) {
+	// expand buffer with single allocation
+	grow := (len(path) + 1) + (len(match) + 1)
+	n := ""
+	if *flagLineNumber {
+		n = strconv.Itoa(line)
+		grow += len(n) + 1 // n + ':'
 	}
-	return false
+	b.Grow(grow)
+
+	// format is "path;match\n" or "path:line:match\n"
+	b.Write(path)
+	b.WriteByte(':')
+	if *flagLineNumber {
+		b.WriteString(n)
+		b.WriteByte(':')
+	}
+	b.Write(match)
+	b.WriteByte('\n')
+}
+
+type Liner struct {
+	b []byte
+	t []byte
+}
+
+func newLiner(b []byte) *Liner {
+	return &Liner{b: b}
+}
+
+func (liner *Liner) scan() bool {
+	if len(liner.b) == 0 {
+		return false
+	}
+	index := bytes.IndexByte(liner.b, '\n')
+	if index < 0 {
+		liner.t, liner.b = liner.b, nil
+	} else {
+		liner.t, liner.b = liner.b[:index+1], liner.b[index+1:]
+	}
+	return true
+}
+
+func (liner *Liner) text() []byte {
+	return liner.t
+}
+
+func (liner *Liner) trim() []byte {
+	n := len(liner.t)
+	if n > 0 && liner.t[n-1] == '\n' {
+		return liner.t[:n-1]
+	}
+	return liner.t
 }
 
 func (s *Scan) scan(name string, source []byte) {
@@ -548,45 +605,43 @@ func (s *Scan) scan(name string, source []byte) {
 	}
 
 	s.path = []byte(newName)
-	s.bytes += len(source)
-	s.lines += bytes.Count(source, []byte{'\n'})
+	s.bytes = len(source)
+	s.lines = bytes.Count(source, []byte{'\n'})
+	s.files = 1
+
+	printLine := 0
 
 	// handle grep mode
 	if *flagActLikeGrep || G {
-		line := uint32(1)
-		t := source
-		for a, b := 0, bytes.IndexByte(t, '\n')+1; b > 0 && a < len(t); a, b = b, b+bytes.IndexByte(t[b:], '\n')+1 {
-			if a >= b || a > len(t) {
-				break
-			}
-			if regex.Match(t[a:b]) {
-				s.match = append(s.match, t[a:b-1])
+		fileLine := 0
+		liner := newLiner(source)
+		buf := new(bytes.Buffer)
+		for liner.scan() {
+			fileLine++
+			if regex.Match(liner.text()) {
 				s.matches++
-				if *flagLineNumber {
-					s.line = append(s.line, line)
-				}
+				formatMatch(buf, s.path, liner.trim(), fileLine)
 			}
-			line++
 		}
+		s.report = buf.Bytes()
 		return
 	}
 
 	// Perform the scan by tabulating token types, subtypes, and values
-	line := -1
-	lexer := &lex.Lexer{Input: source, Mode: lex.ScanGo} // | lex.SkipSpace}
-
+	// lexer := &lex.Lexer{Input: source, Mode: lex.ScanGo} // | lex.SkipSpace}
+	lexer := lex.NewLexer(source, lex.ScanGo)
 	expectPackageName := false
-	skip := false
+	buf := new(bytes.Buffer)
 	for tok, text := lexer.Scan(); tok != lex.EOF; tok, text = lexer.Scan() {
 		s.tokens++
 
 		// go mini-parser: expect package name after "package" keyword
 		if expectPackageName && tok == lex.Identifier {
 			if P && regex.Match(text) {
-				s.match = append(s.match, text)
 				s.matches++
-				if *flagLineNumber {
-					s.line = append(s.line, uint32(lexer.Line))
+				if printLine < lexer.Line {
+					formatMatch(buf, s.path, text, lexer.Line)
+					printLine = lexer.Line
 				}
 			}
 			expectPackageName = false
@@ -595,54 +650,42 @@ func (s *Scan) scan(name string, source []byte) {
 		}
 
 		handle := func(flag bool) {
-			// if !skip {
-			if true || !skip {
-				if flag && lexer.Line > line {
-					if lexer.Type == lex.String && lexer.Subtype == lex.Raw && bytes.Count(text, []byte{'\n'}) > 0 {
-						// match each line of the raw string individually
-						lineInString := 0
-						t := text
-						for a, b := 0, bytes.IndexByte(t, '\n'); b > 0 && a < len(t); a, b = b+1, b+1+bytes.IndexByte(t[b+1:], '\n') {
-							if a > b || b > len(t) {
-								break
-							}
-							if regex.Match(t[a:b]) {
-								s.match = append(s.match, t[a:b])
-								s.matches++
-								line = lexer.Line + lineInString
-								lineInString++
-								if *flagLineNumber {
-									s.line = append(s.line, uint32(line+1))
-								}
+			if flag { //&& printLine < lexer.Line {
+				if lexer.Type == lex.String && lexer.Subtype == lex.Raw && bytes.Count(text, []byte{'\n'}) > 0 {
+					// match each line of the raw string individually
+					lineInString := 0
+					liner := newLiner(text)
+					for liner.scan() {
+						if regex.Match(liner.text()) {
+							s.matches++
+							line := lexer.Line + lineInString
+							if printLine < line {
+								formatMatch(buf, s.path, liner.trim(), line)
+								printLine = line
 							}
 						}
-					} else if lexer.Type == lex.Comment && lexer.Subtype == lex.Block && bytes.Count(text, []byte{'\n'}) > 0 {
-						// match each line of the block comment individually
-						lineInString := 0
-						t := text
-						for a, b := 0, bytes.IndexByte(t, '\n'); b > 0 && a < len(t); a, b = b+1, b+1+bytes.IndexByte(t[b+1:], '\n') {
-							if a > b || b > len(t) {
-								break
-							}
-							if regex.Match(t[a:b]) {
-								s.match = append(s.match, t[a:b])
-								s.matches++
-								line = lexer.Line + lineInString
-								lineInString++
-								if *flagLineNumber {
-									s.line = append(s.line, uint32(line+1))
-								}
-							}
-						}
-					} else if regex.Match(text) {
-						// match the token but print the line that contains it
-						s.match = append(s.match, lexer.GetLine())
-						s.matches++
-						line = lexer.Line
-						if *flagLineNumber {
-							s.line = append(s.line, uint32(line+1))
-						}
+						lineInString++
 					}
+				} else if lexer.Type == lex.Comment && lexer.Subtype == lex.Block && bytes.Count(text, []byte{'\n'}) > 0 {
+					// match each line of the block comment individually
+					lineInString := 0
+					liner := newLiner(text)
+					for liner.scan() {
+						if regex.Match(liner.text()) {
+							s.matches++
+							line := lexer.Line + lineInString
+							if printLine < line {
+								formatMatch(buf, s.path, liner.trim(), line)
+								printLine = line
+							}
+						}
+						lineInString++
+					}
+				} else if printLine < lexer.Line && regex.Match(text) {
+					// match the token but print the line that contains it
+					s.matches++
+					formatMatch(buf, s.path, lexer.GetLine(), lexer.Line)
+					printLine = lexer.Line
 				}
 			}
 		}
@@ -662,7 +705,7 @@ func (s *Scan) scan(name string, source []byte) {
 		case lex.Number:
 			handle(N) // literal match
 			// introducing... the value match
-			if V && lexer.Line > line {
+			if V && printLine < lexer.Line {
 				n := text
 				var nS int
 				if n[0] == '-' { // never used, but someday...
@@ -674,15 +717,17 @@ func (s *Scan) scan(name string, source []byte) {
 					var nI uint64
 					nI, err = strconv.ParseUint(string(n), 0, 64)
 					if err == nil && nS == sign && nI == vInt {
-						s.match = append(s.match, lexer.GetLine()) // match the token but print the line
-						line = lexer.Line
+						// match the token but print the line
+						formatMatch(buf, s.path, lexer.GetLine(), lexer.Line)
+						printLine = lexer.Line
 					}
 				case false:
 					var nF float64
 					nF, err = strconv.ParseFloat(string(n), 64)
 					if err == nil && nS == sign && nF == vFloat {
-						s.match = append(s.match, lexer.GetLine()) // match the token but print the line
-						line = lexer.Line
+						// match the token but print the line
+						formatMatch(buf, s.path, lexer.GetLine(), lexer.Line)
+						printLine = lexer.Line
 					}
 				}
 			}
@@ -696,6 +741,7 @@ func (s *Scan) scan(name string, source []byte) {
 			// seems maningless match unexpected illegal characters, maybe "."?
 		}
 	}
+	s.report = buf.Bytes()
 }
 
 // Complete a scan
@@ -769,46 +815,17 @@ func reporter() {
 			continue
 		}
 
-		// report this file's matching lines
-		for i, m := range s.match {
-			// first the filename, from "-h"
-			if *flagFileName {
-				w.Write(s.path)
-				w.Write([]byte{':'})
-			}
-
-			// second the line number, from "-n"
-			if *flagLineNumber {
-				fmt.Fprintf(w, "%d:", s.line[i])
-			}
-
-			// finally, the match itself
-			start := 0
-			if *flagTrim {
-				for start < len(m) {
-					ch := m[start]
-					if ch == ' ' || ch == '\t' {
-						start++
-					} else {
-						break
-					}
-				}
-				if start < len(m) {
-					m = m[start:]
-				}
-			}
-			w.Write(m)
-			w.Write([]byte{'\n'})
-		}
-		if b != nil {
-			b.Flush() // bug fix: defer flush not acceptable
-		}
+		// report all matching lines in file
+		w.Write(s.report)
 
 		total.bytes += s.bytes
 		total.tokens += s.tokens
 		total.matches += s.matches
 		total.lines += s.lines
 		total.files++
+	}
+	if b != nil {
+		b.Flush() // bug fix: must defer flush until return
 	}
 
 	// signal completion to main program
