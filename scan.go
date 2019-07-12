@@ -45,6 +45,8 @@ tokens match a search pattern defined by a reguar expression.
 // v: search numeric Values (255 as 0b1111_1111, 0377, 255, 0xff)
 var G, C, D, I, K, N, O, P, R, S, T, V bool
 
+var dispatch = []*bool{nil, nil, &C, &I, &K, &O, &R, nil, &S, &T, &D, &N, nil}
+
 // matching
 var regex *regexp.Regexp // pattern
 
@@ -285,6 +287,8 @@ func (s *Scan) List(name string) {
 	file.Close()
 }
 
+var cap int
+
 func (s *Scan) File(name string) {
 	if !isVisible(name) {
 		return
@@ -483,15 +487,6 @@ func (s *Scan) Scan(name string, source []byte) {
 	if first {
 		workers = *flagCPUs
 		switch *flagUnordered {
-		case false:
-			work = make([]chan Work, workers)
-			result = make([]chan *Scan, workers)
-			for i := 0; i < workers; i++ {
-				const balanceQueue = 512
-				work[i] = make(chan Work, balanceQueue)
-				result[i] = make(chan *Scan, balanceQueue)
-				go worker(work[i], result[i])
-			}
 		case true:
 			const workQueue = 1024
 			work = make([]chan Work, 1)
@@ -500,6 +495,15 @@ func (s *Scan) Scan(name string, source []byte) {
 			result[0] = make(chan *Scan, workQueue)
 			for i := 0; i < workers; i++ {
 				go worker(work[0], result[0])
+			}
+		case false:
+			work = make([]chan Work, workers)
+			result = make([]chan *Scan, workers)
+			for i := 0; i < workers; i++ {
+				const balanceQueue = 512
+				work[i] = make(chan Work, balanceQueue)
+				result[i] = make(chan *Scan, balanceQueue)
+				go worker(work[i], result[i])
 			}
 		}
 		done = make(chan Summary)
@@ -510,26 +514,19 @@ func (s *Scan) Scan(name string, source []byte) {
 	switch {
 	case name == "": // end of scan
 		switch *flagUnordered {
+		case true:
+			close(work[0]) // signal completion to workers
 		case false:
 			for i := range work {
 				close(work[i]) // signal completion to workers
 			}
-		case true:
-			close(work[0]) // signal completion to workers
 		}
 	default: // another file to scan
-		// if false { // experiment with prefetching
-		// 	var err error
-		// 	name, source, err = decompress(name, source)
-		// 	if err != nil {
-		// 		return
-		// 	}
-		// }
 		switch *flagUnordered {
-		case false:
-			work[scattered%workers] <- Work{name: name, source: source} // enqueue scan request
 		case true:
 			work[0] <- Work{name: name, source: source} // enqueue scan request
+		case false:
+			work[scattered%workers] <- Work{name: name, source: source} // enqueue scan request
 		}
 		scattered++
 	}
@@ -588,6 +585,48 @@ func (liner *Liner) trim() []byte {
 		return liner.t[:n-1]
 	}
 	return liner.t
+}
+
+func tokenHandler(flag bool, lexer *lex.Lexer, text []byte, s *Scan, printLine int, buf *bytes.Buffer) int {
+	if flag { //&& printLine < lexer.Line {
+		if lexer.Type == lex.String && lexer.Subtype == lex.Raw && bytes.Count(text, []byte{'\n'}) > 0 {
+			// match each line of the raw string individually
+			lineInString := 0
+			liner := newLiner(text)
+			for liner.scan() {
+				if regex.Match(liner.text()) {
+					s.matches++
+					line := lexer.Line + lineInString
+					if printLine < line {
+						formatMatch(buf, s.path, liner.trim(), line)
+						printLine = line
+					}
+				}
+				lineInString++
+			}
+		} else if lexer.Type == lex.Comment && lexer.Subtype == lex.Block && bytes.Count(text, []byte{'\n'}) > 0 {
+			// match each line of the block comment individually
+			lineInString := 0
+			liner := newLiner(text)
+			for liner.scan() {
+				if regex.Match(liner.text()) {
+					s.matches++
+					line := lexer.Line + lineInString
+					if printLine < line {
+						formatMatch(buf, s.path, liner.trim(), line)
+						printLine = line
+					}
+				}
+				lineInString++
+			}
+		} else if printLine < lexer.Line && regex.Match(text) {
+			// match the token but print the line that contains it
+			s.matches++
+			formatMatch(buf, s.path, lexer.GetLine(), lexer.Line)
+			printLine = lexer.Line
+		}
+	}
+	return printLine
 }
 
 func (s *Scan) scan(name string, source []byte) {
@@ -649,8 +688,104 @@ func (s *Scan) scan(name string, source []byte) {
 			expectPackageName = true // set expectations
 		}
 
-		handle := func(flag bool) {
-			if flag { //&& printLine < lexer.Line {
+		/*
+			handle := func(flag bool) {
+				if flag { //&& printLine < lexer.Line {
+					if lexer.Type == lex.String && lexer.Subtype == lex.Raw && bytes.Count(text, []byte{'\n'}) > 0 {
+						// match each line of the raw string individually
+						lineInString := 0
+						liner := newLiner(text)
+						for liner.scan() {
+							if regex.Match(liner.text()) {
+								s.matches++
+								line := lexer.Line + lineInString
+								if printLine < line {
+									formatMatch(buf, s.path, liner.trim(), line)
+									printLine = line
+								}
+							}
+							lineInString++
+						}
+					} else if lexer.Type == lex.Comment && lexer.Subtype == lex.Block && bytes.Count(text, []byte{'\n'}) > 0 {
+						// match each line of the block comment individually
+						lineInString := 0
+						liner := newLiner(text)
+						for liner.scan() {
+							if regex.Match(liner.text()) {
+								s.matches++
+								line := lexer.Line + lineInString
+								if printLine < line {
+									formatMatch(buf, s.path, liner.trim(), line)
+									printLine = line
+								}
+							}
+							lineInString++
+						}
+					} else if printLine < lexer.Line && regex.Match(text) {
+						// match the token but print the line that contains it
+						s.matches++
+						formatMatch(buf, s.path, lexer.GetLine(), lexer.Line)
+						printLine = lexer.Line
+					}
+				}
+			}
+
+			switch tok {
+			case lex.Space:
+			case lex.Comment:
+				// handle(C)
+				printLine = tokenHandler(C, lexer, text, s, printLine, buf)
+			case lex.Operator:
+				handle(O)
+			case lex.String:
+				handle(S)
+			case lex.Rune:
+				handle(R)
+			case lex.Identifier:
+				handle(I)
+			case lex.Number:
+				handle(N) // literal match
+				// introducing... the value match
+				if V && printLine < lexer.Line {
+					n := text
+					var nS int
+					if n[0] == '-' { // never used, but someday...
+						nS = -1
+						n = n[1:]
+					}
+					switch vIsInt {
+					case true:
+						var nI uint64
+						nI, err = strconv.ParseUint(string(n), 0, 64)
+						if err == nil && nS == sign && nI == vInt {
+							// match the token but print the line
+							formatMatch(buf, s.path, lexer.GetLine(), lexer.Line)
+							printLine = lexer.Line
+						}
+					case false:
+						var nF float64
+						nF, err = strconv.ParseFloat(string(n), 64)
+						if err == nil && nS == sign && nF == vFloat {
+							// match the token but print the line
+							formatMatch(buf, s.path, lexer.GetLine(), lexer.Line)
+							printLine = lexer.Line
+						}
+					}
+				}
+			case lex.Keyword:
+				handle(K)
+			case lex.Type:
+				handle(T)
+			case lex.Other:
+				handle(D)
+			case lex.Character:
+				// seems maningless match unexpected illegal characters, maybe "."?
+			}
+		*/
+
+		if tok < 0 {
+			if f := dispatch[-tok]; f != nil && *f {
+				// printLine = tokenHandler(*f, lexer, text, s, printLine, buf)
 				if lexer.Type == lex.String && lexer.Subtype == lex.Raw && bytes.Count(text, []byte{'\n'}) > 0 {
 					// match each line of the raw string individually
 					lineInString := 0
@@ -688,24 +823,7 @@ func (s *Scan) scan(name string, source []byte) {
 					printLine = lexer.Line
 				}
 			}
-		}
-
-		switch tok {
-		case lex.Space:
-		case lex.Comment:
-			handle(C)
-		case lex.Operator:
-			handle(O)
-		case lex.String:
-			handle(S)
-		case lex.Rune:
-			handle(R)
-		case lex.Identifier:
-			handle(I)
-		case lex.Number:
-			handle(N) // literal match
-			// introducing... the value match
-			if V && printLine < lexer.Line {
+			if tok == lex.Number && V && printLine < lexer.Line {
 				n := text
 				var nS int
 				if n[0] == '-' { // never used, but someday...
@@ -731,15 +849,8 @@ func (s *Scan) scan(name string, source []byte) {
 					}
 				}
 			}
-		case lex.Keyword:
-			handle(K)
-		case lex.Type:
-			handle(T)
-		case lex.Other:
-			handle(D)
-		case lex.Character:
-			// seems maningless match unexpected illegal characters, maybe "."?
 		}
+
 	}
 	s.report = buf.Bytes()
 }
