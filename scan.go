@@ -18,6 +18,8 @@ import (
 	"strings"
 	"syscall"
 
+	"launchpad.net/gommap"
+
 	"github.com/MichaelTJones/lex"
 	// "github.com/MichaelTJones/walk"
 	"github.com/klauspost/compress/zstd"
@@ -60,19 +62,16 @@ var vInt uint64    // literal value
 var vFloat float64 // literal value
 
 type Scan struct {
-	path []byte
-	// line     []uint32
-	match    [][]byte
+	regex    *regexp.Regexp
+	path     []byte
 	Summary  // accumulator: bytes, tokens, lines, matches
 	complete bool
 	total    Summary
-
-	report []byte
+	report   []byte
 }
 
 func NewScan() *Scan {
 	return &Scan{}
-	// return &Scan{match: make([][]byte, 0, 256)} // preallocate
 }
 
 func doScan() (Summary, error) {
@@ -202,10 +201,20 @@ func isCompressed(name string) bool {
 	return ext == ".bz2" || ext == ".gz" || ext == ".zst"
 }
 
-func decompress(oldName string, oldData []byte) (newName string, newData []byte, err error) {
+func decompress(oldName string, oldData []byte) (newName string, newData []byte, fd *os.File, err error) {
 	ext := filepath.Ext(oldName)
 	if (ext == ".go" && len(oldData) > 0) || (ext == ".zip") {
-		return oldName, oldData, nil // nothing to do
+		return oldName, oldData, nil, nil // nothing to do
+	}
+	if *flagMap && ext == ".go" {
+		file, err := os.Open(oldName)
+		if err == nil {
+			mmap, err := gommap.Map(file.Fd(), gommap.PROT_READ, gommap.MAP_PRIVATE)
+			if err == nil {
+				// fmt.Printf("mmaped: %q len=%d head=%q\n", oldName, len(mmap), mmap[:32])
+				return oldName, []byte(mmap), file, err
+			}
+		}
 	}
 
 	var oldSize int64
@@ -218,13 +227,13 @@ func decompress(oldName string, oldData []byte) (newName string, newData []byte,
 		file, err := os.Open(oldName)
 		if err != nil {
 			println(err)
-			return oldName, nil, err
+			return oldName, nil, nil, err
 		}
 		defer file.Close()
 		info, err := file.Stat()
 		if err != nil {
 			println(err)
-			return oldName, nil, err
+			return oldName, nil, nil, err
 		}
 		oldSize = info.Size()
 		encoded = file
@@ -251,13 +260,13 @@ func decompress(oldName string, oldData []byte) (newName string, newData []byte,
 	}
 	if err != nil {
 		println(err) // error creating the decoder
-		return oldName, nil, err
+		return oldName, nil, nil, err
 	}
 
 	// Decompress the data
 	if newData, err = ioutil.ReadAll(decoder); err != nil {
 		println(err) // error using the decoder
-		return oldName, nil, err
+		return oldName, nil, nil, err
 	}
 	if decompressed {
 		// Decompress the name ("sample.go.zst" → "sample.go")
@@ -269,7 +278,7 @@ func decompress(oldName string, oldData []byte) (newName string, newData []byte,
 		printf("  %8d bytes  scan %s", len(newData), oldName)
 	}
 
-	return newName, newData, nil
+	return newName, newData, nil, nil
 }
 
 func (s *Scan) List(name string) {
@@ -477,6 +486,7 @@ var done chan Summary
 func worker(wIn chan Work, sOut chan *Scan) {
 	for w := range wIn {
 		s := NewScan()
+		s.regex = regex.Copy()
 		s.scan(w.name, w.source)
 		sOut <- s
 	}
@@ -594,7 +604,7 @@ func tokenHandler(flag bool, lexer *lex.Lexer, text []byte, s *Scan, printLine i
 			lineInString := 0
 			liner := newLiner(text)
 			for liner.scan() {
-				if regex.Match(liner.text()) {
+				if s.regex.Match(liner.text()) {
 					s.matches++
 					line := lexer.Line + lineInString
 					if printLine < line {
@@ -609,7 +619,7 @@ func tokenHandler(flag bool, lexer *lex.Lexer, text []byte, s *Scan, printLine i
 			lineInString := 0
 			liner := newLiner(text)
 			for liner.scan() {
-				if regex.Match(liner.text()) {
+				if s.regex.Match(liner.text()) {
 					s.matches++
 					line := lexer.Line + lineInString
 					if printLine < line {
@@ -619,7 +629,7 @@ func tokenHandler(flag bool, lexer *lex.Lexer, text []byte, s *Scan, printLine i
 				}
 				lineInString++
 			}
-		} else if printLine < lexer.Line && regex.Match(text) {
+		} else if printLine < lexer.Line && s.regex.Match(text) {
 			// match the token but print the line that contains it
 			s.matches++
 			formatMatch(buf, s.path, lexer.GetLine(), lexer.Line)
@@ -632,7 +642,8 @@ func tokenHandler(flag bool, lexer *lex.Lexer, text []byte, s *Scan, printLine i
 func (s *Scan) scan(name string, source []byte) {
 	var err error
 	var newName string
-	newName, source, err = decompress(name, source)
+	var fp *os.File
+	newName, source, fp, err = decompress(name, source)
 	if err != nil {
 		return
 	}
@@ -657,7 +668,7 @@ func (s *Scan) scan(name string, source []byte) {
 		buf := new(bytes.Buffer)
 		for liner.scan() {
 			fileLine++
-			if regex.Match(liner.text()) {
+			if s.regex.Match(liner.text()) {
 				s.matches++
 				formatMatch(buf, s.path, liner.trim(), fileLine)
 			}
@@ -676,7 +687,7 @@ func (s *Scan) scan(name string, source []byte) {
 
 		// go mini-parser: expect package name after "package" keyword
 		if expectPackageName && tok == lex.Identifier {
-			if P && regex.Match(text) {
+			if P && s.regex.Match(text) {
 				s.matches++
 				if printLine < lexer.Line {
 					formatMatch(buf, s.path, text, lexer.Line)
@@ -791,7 +802,7 @@ func (s *Scan) scan(name string, source []byte) {
 					lineInString := 0
 					liner := newLiner(text)
 					for liner.scan() {
-						if regex.Match(liner.text()) {
+						if s.regex.Match(liner.text()) {
 							s.matches++
 							line := lexer.Line + lineInString
 							if printLine < line {
@@ -806,7 +817,7 @@ func (s *Scan) scan(name string, source []byte) {
 					lineInString := 0
 					liner := newLiner(text)
 					for liner.scan() {
-						if regex.Match(liner.text()) {
+						if s.regex.Match(liner.text()) {
 							s.matches++
 							line := lexer.Line + lineInString
 							if printLine < line {
@@ -816,7 +827,7 @@ func (s *Scan) scan(name string, source []byte) {
 						}
 						lineInString++
 					}
-				} else if printLine < lexer.Line && regex.Match(text) {
+				} else if printLine < lexer.Line && s.regex.Match(text) {
 					// match the token but print the line that contains it
 					s.matches++
 					formatMatch(buf, s.path, lexer.GetLine(), lexer.Line)
@@ -853,6 +864,11 @@ func (s *Scan) scan(name string, source []byte) {
 
 	}
 	s.report = buf.Bytes()
+	if *flagMap && fp != nil {
+		// finished using []byte] source so unmap file to free the file descriptor
+		gommap.MMap(source).UnsafeUnmap()
+		fp.Close()
+	}
 }
 
 // Complete a scan
@@ -1126,7 +1142,7 @@ func processRegularFile(name string, s Scanner) {
 	var err error
 	var data []byte
 	if isArchive(name) && isCompressed(name) {
-		name, data, err = decompress(name, nil)
+		name, data, _, err = decompress(name, nil)
 		if err != nil {
 			println(err)
 			return
