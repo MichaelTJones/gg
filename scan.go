@@ -201,18 +201,20 @@ func isCompressed(name string) bool {
 	return ext == ".bz2" || ext == ".gz" || ext == ".zst"
 }
 
-func decompress(oldName string, oldData []byte) (newName string, newData []byte, fd *os.File, err error) {
+func decompress(oldName string, oldData []byte) (newName string, newData []byte, mapped bool, err error) {
 	ext := filepath.Ext(oldName)
 	if (ext == ".go" && len(oldData) > 0) || (ext == ".zip") {
-		return oldName, oldData, nil, nil // nothing to do
+		return oldName, oldData, false, nil // nothing to do
 	}
 	if *flagMap && ext == ".go" {
 		file, err := os.Open(oldName)
 		if err == nil {
 			mmap, err := gommap.Map(file.Fd(), gommap.PROT_READ, gommap.MAP_PRIVATE)
 			if err == nil {
+				err = mmap.Advise(gommap.MADV_SEQUENTIAL | gommap.MADV_WILLNEED)
 				// fmt.Printf("mmaped: %q len=%d head=%q\n", oldName, len(mmap), mmap[:32])
-				return oldName, []byte(mmap), file, err
+				file.Close()
+				return oldName, []byte(mmap), true, err
 			}
 		}
 	}
@@ -227,13 +229,13 @@ func decompress(oldName string, oldData []byte) (newName string, newData []byte,
 		file, err := os.Open(oldName)
 		if err != nil {
 			println(err)
-			return oldName, nil, nil, err
+			return oldName, nil, false, err
 		}
 		defer file.Close()
 		info, err := file.Stat()
 		if err != nil {
 			println(err)
-			return oldName, nil, nil, err
+			return oldName, nil, false, err
 		}
 		oldSize = info.Size()
 		encoded = file
@@ -260,13 +262,13 @@ func decompress(oldName string, oldData []byte) (newName string, newData []byte,
 	}
 	if err != nil {
 		println(err) // error creating the decoder
-		return oldName, nil, nil, err
+		return oldName, nil, false, err
 	}
 
 	// Decompress the data
 	if newData, err = ioutil.ReadAll(decoder); err != nil {
 		println(err) // error using the decoder
-		return oldName, nil, nil, err
+		return oldName, nil, false, err
 	}
 	if decompressed {
 		// Decompress the name ("sample.go.zst" → "sample.go")
@@ -278,7 +280,7 @@ func decompress(oldName string, oldData []byte) (newName string, newData []byte,
 		printf("  %8d bytes  scan %s", len(newData), oldName)
 	}
 
-	return newName, newData, nil, nil
+	return newName, newData, false, nil
 }
 
 func (s *Scan) List(name string) {
@@ -642,8 +644,8 @@ func tokenHandler(flag bool, lexer *lex.Lexer, text []byte, s *Scan, printLine i
 func (s *Scan) scan(name string, source []byte) {
 	var err error
 	var newName string
-	var fp *os.File
-	newName, source, fp, err = decompress(name, source)
+	var mapped bool
+	newName, source, mapped, err = decompress(name, source)
 	if err != nil {
 		return
 	}
@@ -651,6 +653,10 @@ func (s *Scan) scan(name string, source []byte) {
 	if !*flagGo && isBinary(source) {
 		// enable printf if desired. makes log cluttered:
 		// printf("skipping binary file %s", newName)
+		if *flagMap && mapped {
+			// finished using []byte] source so unmap file to free the file descriptor
+			gommap.MMap(source).UnsafeUnmap()
+		}
 		return
 	}
 
@@ -674,6 +680,10 @@ func (s *Scan) scan(name string, source []byte) {
 			}
 		}
 		s.report = buf.Bytes()
+		if *flagMap && mapped {
+			// finished using []byte] source so unmap file to free the file descriptor
+			gommap.MMap(source).UnsafeUnmap()
+		}
 		return
 	}
 
@@ -698,101 +708,6 @@ func (s *Scan) scan(name string, source []byte) {
 		} else if tok == lex.Keyword && bytes.Equal(text, []byte("package")) {
 			expectPackageName = true // set expectations
 		}
-
-		/*
-			handle := func(flag bool) {
-				if flag { //&& printLine < lexer.Line {
-					if lexer.Type == lex.String && lexer.Subtype == lex.Raw && bytes.Count(text, []byte{'\n'}) > 0 {
-						// match each line of the raw string individually
-						lineInString := 0
-						liner := newLiner(text)
-						for liner.scan() {
-							if regex.Match(liner.text()) {
-								s.matches++
-								line := lexer.Line + lineInString
-								if printLine < line {
-									formatMatch(buf, s.path, liner.trim(), line)
-									printLine = line
-								}
-							}
-							lineInString++
-						}
-					} else if lexer.Type == lex.Comment && lexer.Subtype == lex.Block && bytes.Count(text, []byte{'\n'}) > 0 {
-						// match each line of the block comment individually
-						lineInString := 0
-						liner := newLiner(text)
-						for liner.scan() {
-							if regex.Match(liner.text()) {
-								s.matches++
-								line := lexer.Line + lineInString
-								if printLine < line {
-									formatMatch(buf, s.path, liner.trim(), line)
-									printLine = line
-								}
-							}
-							lineInString++
-						}
-					} else if printLine < lexer.Line && regex.Match(text) {
-						// match the token but print the line that contains it
-						s.matches++
-						formatMatch(buf, s.path, lexer.GetLine(), lexer.Line)
-						printLine = lexer.Line
-					}
-				}
-			}
-
-			switch tok {
-			case lex.Space:
-			case lex.Comment:
-				// handle(C)
-				printLine = tokenHandler(C, lexer, text, s, printLine, buf)
-			case lex.Operator:
-				handle(O)
-			case lex.String:
-				handle(S)
-			case lex.Rune:
-				handle(R)
-			case lex.Identifier:
-				handle(I)
-			case lex.Number:
-				handle(N) // literal match
-				// introducing... the value match
-				if V && printLine < lexer.Line {
-					n := text
-					var nS int
-					if n[0] == '-' { // never used, but someday...
-						nS = -1
-						n = n[1:]
-					}
-					switch vIsInt {
-					case true:
-						var nI uint64
-						nI, err = strconv.ParseUint(string(n), 0, 64)
-						if err == nil && nS == sign && nI == vInt {
-							// match the token but print the line
-							formatMatch(buf, s.path, lexer.GetLine(), lexer.Line)
-							printLine = lexer.Line
-						}
-					case false:
-						var nF float64
-						nF, err = strconv.ParseFloat(string(n), 64)
-						if err == nil && nS == sign && nF == vFloat {
-							// match the token but print the line
-							formatMatch(buf, s.path, lexer.GetLine(), lexer.Line)
-							printLine = lexer.Line
-						}
-					}
-				}
-			case lex.Keyword:
-				handle(K)
-			case lex.Type:
-				handle(T)
-			case lex.Other:
-				handle(D)
-			case lex.Character:
-				// seems maningless match unexpected illegal characters, maybe "."?
-			}
-		*/
 
 		if tok < 0 {
 			if f := dispatch[-tok]; f != nil && *f {
@@ -864,10 +779,9 @@ func (s *Scan) scan(name string, source []byte) {
 
 	}
 	s.report = buf.Bytes()
-	if *flagMap && fp != nil {
+	if *flagMap && mapped {
 		// finished using []byte] source so unmap file to free the file descriptor
 		gommap.MMap(source).UnsafeUnmap()
-		fp.Close()
 	}
 }
 
